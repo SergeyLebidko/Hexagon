@@ -14,7 +14,7 @@ FPS = 30
 BACKGROUND_COLORS_RANGE = (240, 250)
 
 # Параметры отдельных гексов
-RADIUS = 50
+RADIUS = 40
 NORMAL = RADIUS * cos(pi / 6)
 HEX_MARGIN = 3
 

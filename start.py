@@ -1,6 +1,6 @@
 from settings import pg, W, H, WINDOW_TITLE, FPS
 from utils import create_background_surface
-from classes import Field
+from classes import Field, Pool
 
 
 def main():
@@ -13,8 +13,7 @@ def main():
     background_surface = create_background_surface()
     field = Field(sc)
 
-    from utils import create_figures_list
-    figures_list = create_figures_list()
+    pool = Pool()
 
     while True:
 
