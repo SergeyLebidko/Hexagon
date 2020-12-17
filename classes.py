@@ -1,7 +1,9 @@
 import random
+from copy import deepcopy
 from math import pi, sin, cos
-from settings import pg, W, H, LAYERS_COUNT, NORMAL, D_PARAMS, EMPTY_HEXAGON_COLOR, FIGURES_DATA, COLOR_PRESETS
-from utils import create_hexagon_coords
+from settings import pg, W, H, LAYERS_COUNT, NORMAL, D_PARAMS, EMPTY_HEXAGON_COLOR, FIGURES_DATA, COLOR_PRESETS, \
+    TRANSPARENT_COLOR
+from utils import create_hexagon_coords, normalize_value
 
 
 class Hexagon:
@@ -9,6 +11,29 @@ class Hexagon:
     def __init__(self, x0, y0):
         self.x0, self.y0 = x0, y0
         self.coords = create_hexagon_coords(x0, y0)
+
+    def draw(self, surface, color):
+        pg.draw.polygon(surface, color, self.coords)
+
+    def offset(self, delta_x, delta_y):
+        self.x0, self.y0 = self.x0 + delta_x, self.y0 + delta_y
+        self.coords = [(coord[0] + delta_x, coord[1] + delta_y) for coord in self.coords]
+
+    def collide(self, x, y):
+        tmp_coords = self.coords + [self.coords[0]]
+        for (x1, y1), (x2, y2) in ((tmp_coords[index], tmp_coords[index + 1]) for index in range(6)):
+            a = y2 - y1
+            b = x1 - x2
+            c = y1 * (x2 - x1) - x1 * (y2 - y1)
+            dot_val = normalize_value(a * x + b * y + c)
+            if dot_val == 0:
+                return True
+
+            center_val = normalize_value(a * self.x0 + b * self.y0 + c)
+            if dot_val != center_val:
+                return False
+
+        return True
 
 
 class FieldHexagon(Hexagon):
@@ -29,24 +54,50 @@ class Figure:
 
     def __init__(self):
         self.hexagon_list = []
+        self.color = None
 
     @property
-    def size(self):
-        all_x = [coord[0] for hexagon in self.hexagon_list for coord in hexagon.coords]
-        all_y = [coord[1] for hexagon in self.hexagon_list for coord in hexagon.coords]
+    def min_x(self):
+        return min(coord[0] for hexagon in self.hexagon_list for coord in hexagon.coords)
 
-        # Возвращаем кортеж (ширина, высота)
-        return max(all_x) - min(all_x), max(all_y) - min(all_y)
+    @property
+    def max_x(self):
+        return max(coord[0] for hexagon in self.hexagon_list for coord in hexagon.coords)
+
+    @property
+    def min_y(self):
+        return min(coord[1] for hexagon in self.hexagon_list for coord in hexagon.coords)
+
+    @property
+    def max_y(self):
+        return max(coord[1] for hexagon in self.hexagon_list for coord in hexagon.coords)
+
+    @property
+    def width(self):
+        return self.max_x - self.min_x
+
+    @property
+    def height(self):
+        return self.max_y - self.min_y
+
+    def collide(self, x, y):
+        return any(hexagon.collide(x, y) for hexagon in self.hexagon_list)
+
+    def draw(self, surface):
+        if not self.color:
+            raise Exception('Figure without color!')
+        for hexagon in self.hexagon_list:
+            hexagon.draw(surface, self.color)
 
 
 class Pool:
     BORDER = 10
 
-    def __init__(self):
+    def __init__(self, sc):
+        self.sc = sc
         self.figures_pool = []
 
         # Генерируем все виды фигур
-        max_w = max_h = 0
         for figure_data in FIGURES_DATA:
             x0 = y0 = 0
             figure = Figure()
@@ -63,14 +114,60 @@ class Pool:
 
             self.figures_pool.append(figure)
 
-            # Определяем габариты созданной фигуры и находим среди них максимальные
-            max_w = max(figure.size[0], max_w)
-            max_h = max(figure.size[1], max_h)
+        # Определяем максимальные габариты фигур
+        self.slot_width = max(figure.width for figure in self.figures_pool)
+        self.slot_height = max(figure.height for figure in self.figures_pool)
 
-        # Находим опорные точки для слотов и отображения фигур в них
-        self.slot_height = max_h
-        self.slot_width = max_w
-        self.slots_baseline = W - self.BORDER - max_w
+        self.slots = []
+        for index in range(3):
+            self.slots.append({
+                'x': W - self.BORDER - self.slot_width,
+                'y': (H - self.slot_height * 3 - self.BORDER * 2) // 2 + index * (self.slot_height + self.BORDER),
+                'figure': None
+            })
+
+        # Создаем поверхность для отрисовки
+        self.surface = pg.Surface((W, H))
+        self.surface.set_colorkey(TRANSPARENT_COLOR)
+        self.update_flag = True
+
+    def refresh_slots(self):
+        for slot in self.slots:
+            if slot['figure']:
+                continue
+
+            figure = deepcopy(random.choice(self.figures_pool))
+            figure.color = random.choice(COLOR_PRESETS)
+            x_anchor = slot['x'] + self.slot_width // 2 - figure.width // 2
+            y_anchor = slot['y'] + self.slot_height // 2 - figure.height // 2
+            delta_x, delta_y = x_anchor - figure.min_x, y_anchor - figure.min_y
+            for hexagon in figure.hexagon_list:
+                hexagon.offset(delta_x, delta_y)
+
+            slot['figure'] = figure
+            self.update_flag = True
+
+    def draw_slots(self):
+        if self.update_flag:
+            self.surface.fill(TRANSPARENT_COLOR)
+            for slot in self.slots:
+                figure = slot['figure']
+                if figure:
+                    figure.draw(self.surface)
+
+            self.update_flag = False
+
+        self.sc.blit(self.surface, (0, 0))
+
+    def collide(self, x, y):
+        for slot in self.slots:
+            figure = slot['figure']
+            if not figure:
+                continue
+            if figure.collide(x, y):
+                return True
+
+        return False
 
 
 class Field:
@@ -127,14 +224,14 @@ class Field:
 
         # Создаем поверхность для отрисовки
         self.surface = pg.Surface((W, H))
-        self.surface.set_colorkey((0, 0, 0))
+        self.surface.set_colorkey(TRANSPARENT_COLOR)
         self.update_flag = True
 
     def draw_field(self):
         if self.update_flag:
-            self.surface.fill((0, 0, 0))
+            self.surface.fill(TRANSPARENT_COLOR)
             for hexagon in self.hexagon_list:
                 color = (255, 0, 0) if hexagon.content else EMPTY_HEXAGON_COLOR
-                pg.draw.polygon(self.surface, color, hexagon.coords)
+                hexagon.draw(self.surface, color)
             self.update_flag = False
         self.sc.blit(self.surface, (0, 0))

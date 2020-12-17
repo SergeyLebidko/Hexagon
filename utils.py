@@ -22,3 +22,11 @@ def create_hexagon_coords(x0, y0):
         coords.append((x0 + (RADIUS - HEX_MARGIN) * cos(alpha), y0 - (RADIUS - HEX_MARGIN) * sin(alpha)))
         alpha += delta_alpha
     return coords
+
+
+def normalize_value(value):
+    if value < 0:
+        return -1
+    elif value > 0:
+        return 1
+    return value

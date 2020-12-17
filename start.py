@@ -12,8 +12,8 @@ def main():
 
     background_surface = create_background_surface()
     field = Field(sc)
-
-    pool = Pool()
+    pool = Pool(sc)
+    pool.refresh_slots()
 
     while True:
 
@@ -23,8 +23,12 @@ def main():
                 pg.quit()
                 exit()
 
+            if event.type == pg.MOUSEBUTTONDOWN:
+                print(pool.collide(*event.pos))
+
         sc.blit(background_surface, (0, 0))
         field.draw_field()
+        pool.draw_slots()
         pg.display.update()
 
         clock.tick(FPS)
