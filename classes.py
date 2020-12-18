@@ -55,6 +55,10 @@ class FieldHexagon(Hexagon):
         self.x_axis, self.y_axis, self.z_axis = x_axis, y_axis, z_axis
         self.content = None
 
+    # Удалить
+    def __repr__(self):
+        return f'{self.x_axis}|{self.y_axis}|{self.z_axis}|{self.content}'
+
 
 class FigureHexagon(Hexagon):
 
@@ -71,6 +75,7 @@ class Figure:
     def __init__(self):
         self.hexagon_list = []
         self.color = None
+        self.data_for_create = None
 
     @property
     def min_x(self):
@@ -109,6 +114,9 @@ class Figure:
         for hexagon in self.hexagon_list:
             hexagon.draw(surface, self.color)
 
+    def __len__(self):
+        return len(self.hexagon_list)
+
 
 class Pool:
     BORDER = 10
@@ -132,6 +140,7 @@ class Pool:
                 )
                 figure.hexagon_list.append(last_hexagon)
 
+            figure.data_for_create = figure_data
             self.figures_pool.append(figure)
 
         # Определяем максимальные габариты фигур
@@ -201,8 +210,10 @@ class Pool:
         for slot in self.slots:
             if slot['figure']:
                 continue
-
             self._add_figure_to_slot(figure, slot)
+
+    def get_figures_list(self):
+        return [slot['figure'] for slot in self.slots if slot['figure']]
 
 
 class Field:
@@ -266,17 +277,69 @@ class Field:
         if self.update_flag:
             self.surface.fill(TRANSPARENT_COLOR)
             for hexagon in self.hexagon_list:
-                color = (255, 0, 0) if hexagon.content else EMPTY_HEXAGON_COLOR
+                color = hexagon.content or EMPTY_HEXAGON_COLOR
                 hexagon.draw(self.surface, color)
             self.update_flag = False
         self.sc.blit(self.surface, (0, 0))
 
+    def put_figure(self, figure):
+        tmp_hexagon_list = []
+        for figure_hexagon in figure.hexagon_list:
+            for field_hexagon in self.hexagon_list:
+                if field_hexagon.collide(figure_hexagon.x0, figure_hexagon.y0):
+                    tmp_hexagon_list.append(field_hexagon)
+
+        if len(tmp_hexagon_list) != len(figure):
+            return False
+
+        for field_hexagon in tmp_hexagon_list:
+            field_hexagon.content = figure.color
+        self.update_flag = True
+        return True
+
+    def refresh_field(self):
+        list_for_clear = []
+        for axis in ['x_axis', 'y_axis', 'z_axis']:
+            for val in range(-LAYERS_COUNT, LAYERS_COUNT + 1):
+                tmp_hexagon_list = [hexagon for hexagon in self.hexagon_list if getattr(hexagon, axis) == val]
+                if all(hexagon.content for hexagon in tmp_hexagon_list):
+                    list_for_clear.extend(tmp_hexagon_list)
+
+        self.update_flag = self.update_flag or len(list_for_clear) > 0
+        for hexagon in list_for_clear:
+            hexagon.content = None
+
+    def check_figures_list(self, figures_list):
+        for figure in figures_list:
+            for hexagon in self.hexagon_list:
+                if hexagon.content:
+                    continue
+
+                x_axis, y_axis, z_axis = hexagon.x_axis, hexagon.y_axis, hexagon.z_axis
+                for direction in figure.data_for_create:
+                    x_axis += D_PARAMS[direction]['x-axis']
+                    y_axis += D_PARAMS[direction]['y-axis']
+                    z_axis += D_PARAMS[direction]['z-axis']
+                    next_hexagon = self._get_hexagon(x_axis, y_axis, z_axis)
+                    if not next_hexagon or next_hexagon.content:
+                        break
+                else:
+                    return True
+        return False
+
+    def _get_hexagon(self, x_axis, y_axis, z_axis):
+        for hexagon in self.hexagon_list:
+            if hexagon.x_axis == x_axis and hexagon.y_axis == y_axis and hexagon.z_axis == z_axis:
+                return hexagon
+        return None
+
 
 class DragAndDrop:
 
-    def __init__(self, sc, pool):
+    def __init__(self, sc, pool, field):
         self.sc = sc
         self.pool = pool
+        self.field = field
         self.figure = None
         self.surface = pg.Surface((W, H))
         self.surface.set_colorkey(TRANSPARENT_COLOR)
@@ -293,12 +356,17 @@ class DragAndDrop:
         self.figure.offset(delta_x, delta_y)
         self.update_flag = True
 
-    def drop(self, x, y):
+    def drop(self):
         if not self.figure:
             return
-        self.pool.put_to_pool(self.figure)
+
+        result = self.field.put_figure(self.figure)
+        if not result:
+            self.pool.put_to_pool(self.figure)
+
         self.figure = None
         self.update_flag = True
+        return result
 
     def draw(self):
         if self.update_flag:

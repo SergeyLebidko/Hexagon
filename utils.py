@@ -1,17 +1,5 @@
-import random
 from math import pi, cos, sin
-from settings import pg, W, H, BACKGROUND_COLORS_RANGE, RADIUS, HEX_MARGIN
-
-
-def create_background_surface():
-    surface = pg.Surface((W, H))
-    step = 5
-    for y in range(0, H, step):
-        for x in range(0, W, step):
-            color_component = random.randint(*BACKGROUND_COLORS_RANGE)
-            color = (color_component,) * 3
-            pg.draw.rect(surface, color, (x, y, step, step))
-    return surface
+from settings import RADIUS, HEX_MARGIN
 
 
 def create_hexagon_coords(x0, y0):

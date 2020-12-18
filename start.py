@@ -2,6 +2,13 @@ from settings import pg, W, H, WINDOW_TITLE, FPS
 from classes import Field, Pool, DragAndDrop, Background
 
 
+def init_new_game(sc):
+    field = Field(sc)
+    pool = Pool(sc)
+    drag_and_drop = DragAndDrop(sc, pool, field)
+    return field, pool, drag_and_drop
+
+
 def main():
     # Инициализируем окно
     pg.init()
@@ -10,9 +17,7 @@ def main():
     clock = pg.time.Clock()
 
     background = Background(sc)
-    field = Field(sc)
-    pool = Pool(sc)
-    drag_and_drop = DragAndDrop(sc, pool)
+    field, pool, drag_and_drop = init_new_game(sc)
 
     while True:
 
@@ -29,7 +34,16 @@ def main():
                 drag_and_drop.drag(*event.rel)
 
             if event.type == pg.MOUSEBUTTONUP and event.button == pg.BUTTON_LEFT:
-                drag_and_drop.drop(*event.pos)
+                drop_result = drag_and_drop.drop()
+                if not drop_result:
+                    continue
+
+                field.refresh_field()
+                pool.refresh_slots()
+                figures_in_pool = pool.get_figures_list()
+                if not field.check_figures_list(figures_in_pool):
+                    input('Вы проиграли')
+                    # field, pool, drag_and_drop = init_new_game(sc)
 
         background.draw()
         field.draw()
