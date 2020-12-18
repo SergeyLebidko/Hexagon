@@ -1,6 +1,5 @@
 from settings import pg, W, H, WINDOW_TITLE, FPS
-from utils import create_background_surface
-from classes import Field, Pool
+from classes import Field, Pool, DragAndDrop, Background
 
 
 def main():
@@ -10,10 +9,10 @@ def main():
     pg.display.set_caption(WINDOW_TITLE)
     clock = pg.time.Clock()
 
-    background_surface = create_background_surface()
+    background = Background(sc)
     field = Field(sc)
     pool = Pool(sc)
-    pool.refresh_slots()
+    drag_and_drop = DragAndDrop(sc, pool)
 
     while True:
 
@@ -23,14 +22,21 @@ def main():
                 pg.quit()
                 exit()
 
-            if event.type == pg.MOUSEBUTTONDOWN:
-                print(pool.collide(*event.pos))
+            if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
+                drag_and_drop.take(*event.pos)
 
-        sc.blit(background_surface, (0, 0))
-        field.draw_field()
-        pool.draw_slots()
+            if event.type == pg.MOUSEMOTION:
+                drag_and_drop.drag(*event.rel)
+
+            if event.type == pg.MOUSEBUTTONUP and event.button == pg.BUTTON_LEFT:
+                drag_and_drop.drop(*event.pos)
+
+        background.draw()
+        field.draw()
+        pool.draw()
+        drag_and_drop.draw()
+
         pg.display.update()
-
         clock.tick(FPS)
 
 
