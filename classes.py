@@ -33,7 +33,7 @@ class Hexagon:
 
     def collide(self, x, y):
         tmp_coords = self.coords + [self.coords[0]]
-        for (x1, y1), (x2, y2) in ((tmp_coords[index], tmp_coords[index + 1]) for index in range(6)):
+        for (x1, y1), (x2, y2) in ((tmp_coords[index], tmp_coords[index + 1]) for index in range(len(tmp_coords) - 1)):
             a = y2 - y1
             b = x1 - x2
             c = y1 * (x2 - x1) - x1 * (y2 - y1)

@@ -14,9 +14,13 @@ FPS = 30
 BACKGROUND_COLORS_RANGE = (240, 250)
 
 # Параметры отдельных гексов
-RADIUS = 40
+RADIUS = 45
 NORMAL = RADIUS * cos(pi / 6)
 HEX_MARGIN = 3
+
+# Параметры сглаживания углов гексов
+SMOOTH_FACTOR = 0.15
+SMOOTH_DEPTH = 1
 
 # Параметры игрового поля
 LAYERS_COUNT = 4
