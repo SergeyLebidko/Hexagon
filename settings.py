@@ -25,7 +25,7 @@ SMOOTH_DEPTH = 1
 # Параметры игрового поля
 LAYERS_COUNT = 4
 EMPTY_HEXAGON_COLOR = (220, 220, 220)
-MARKED_HEXAGON_COLOR = (235, 235, 235)
+MARKED_HEXAGON_COLOR = (180, 180, 180)
 
 # Параметры смещений для корректной нумерации гексов на игровом поле
 D_PARAMS = [
@@ -85,3 +85,7 @@ FIGURES_DATA = [
 # Режимы работы
 GAME_MODE = 'game_mode'
 FINAL_MODE = 'final_mode'
+
+# Коэффициенты масштабирования для эффекта взятия фигуры мышкой
+SCALE_FACTOR_LESS = 0.8
+SCALE_FACTOR_MORE = 1 / SCALE_FACTOR_LESS

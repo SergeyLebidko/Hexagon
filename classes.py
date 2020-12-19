@@ -2,7 +2,7 @@ import random
 from copy import deepcopy
 from math import pi, sin, cos
 from settings import pg, W, H, LAYERS_COUNT, NORMAL, D_PARAMS, EMPTY_HEXAGON_COLOR, FIGURES_DATA, COLOR_PRESETS, \
-    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, FONT_COLOR, MARKED_HEXAGON_COLOR
+    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, FONT_COLOR, MARKED_HEXAGON_COLOR, SCALE_FACTOR_LESS, SCALE_FACTOR_MORE
 from utils import create_hexagon_coords, normalize_value
 
 
@@ -30,6 +30,8 @@ class Hexagon:
 
     def draw(self, surface, color):
         pg.draw.polygon(surface, color, self.coords)
+        r, g, b = max(10, color[0] - 50), max(10, color[1] - 50), max(10, color[2] - 50)
+        pg.draw.lines(surface, (r, g, b), True, self.coords)
 
     def collide(self, x, y):
         tmp_coords = self.coords + [self.coords[0]]
@@ -110,6 +112,14 @@ class Figure:
             raise Exception('Figure without color!')
         for hexagon in self.hexagon_list:
             hexagon.draw(surface, self.color)
+
+    def scale_hexagons(self, factor):
+        for hexagon in self.hexagon_list:
+            next_coords = []
+            for x, y in hexagon.coords:
+                vector = x - hexagon.x0, y - hexagon.y0
+                next_coords.append((hexagon.x0 + factor * vector[0], hexagon.y0 + factor * vector[1]))
+            hexagon.coords = next_coords
 
     def __len__(self):
         return len(self.hexagon_list)
@@ -301,7 +311,7 @@ class Field:
 
         hexagons_under_figure = self._get_hexagons_under_figure(figure)
 
-        if any(hexagon.content for hexagon in hexagons_under_figure):
+        if any(hexagon.content for hexagon in hexagons_under_figure) or len(hexagons_under_figure) < len(figure):
             return False
 
         self.last_hexagon_add_count = len(hexagons_under_figure)
@@ -377,6 +387,7 @@ class DragAndDrop:
     def take(self, x, y):
         self.figure = self.pool.take_from_pool(x, y)
         if self.figure:
+            self.figure.scale_hexagons(SCALE_FACTOR_LESS)
             self.update_flag = True
 
     def drag(self, delta_x, delta_y):
@@ -392,6 +403,7 @@ class DragAndDrop:
 
         put_result = self.field.put_figure(self.figure)
         if not put_result:
+            self.figure.scale_hexagons(SCALE_FACTOR_MORE)
             self.pool.put_to_pool(self.figure)
 
         self.figure = None
