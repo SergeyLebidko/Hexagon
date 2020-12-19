@@ -25,6 +25,7 @@ SMOOTH_DEPTH = 1
 # Параметры игрового поля
 LAYERS_COUNT = 4
 EMPTY_HEXAGON_COLOR = (220, 220, 220)
+MARKED_HEXAGON_COLOR = (235, 235, 235)
 
 # Параметры смещений для корректной нумерации гексов на игровом поле
 D_PARAMS = [

@@ -2,7 +2,7 @@ import random
 from copy import deepcopy
 from math import pi, sin, cos
 from settings import pg, W, H, LAYERS_COUNT, NORMAL, D_PARAMS, EMPTY_HEXAGON_COLOR, FIGURES_DATA, COLOR_PRESETS, \
-    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, FONT_COLOR
+    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, FONT_COLOR, MARKED_HEXAGON_COLOR
 from utils import create_hexagon_coords, normalize_value
 
 
@@ -54,6 +54,7 @@ class FieldHexagon(Hexagon):
         Hexagon.__init__(self, x0, y0)
         self.x_axis, self.y_axis, self.z_axis = x_axis, y_axis, z_axis
         self.content = None
+        self.marked = False
 
 
 class FigureHexagon(Hexagon):
@@ -277,25 +278,35 @@ class Field:
         if self.update_flag:
             self.surface.fill(TRANSPARENT_COLOR)
             for hexagon in self.hexagon_list:
-                color = hexagon.content or EMPTY_HEXAGON_COLOR
+                if hexagon.content:
+                    color = hexagon.content
+                else:
+                    if hexagon.marked:
+                        color = MARKED_HEXAGON_COLOR
+                    else:
+                        color = EMPTY_HEXAGON_COLOR
                 hexagon.draw(self.surface, color)
             self.update_flag = False
         self.sc.blit(self.surface, (0, 0))
 
-    def put_figure(self, figure):
-        tmp_hexagon_list = []
-        for figure_hexagon in figure.hexagon_list:
-            for field_hexagon in self.hexagon_list:
-                if field_hexagon.collide(figure_hexagon.x0, figure_hexagon.y0):
-                    tmp_hexagon_list.append(field_hexagon)
+    def mark_hexagons_under_figure(self, figure):
+        hexagons_under_figure = self._get_hexagons_under_figure(figure)
+        for hexagon in self.hexagon_list:
+            hexagon.marked = (hexagon in hexagons_under_figure) and (hexagon.content is None)
+        self.update_flag = True
 
-        if len(tmp_hexagon_list) != len(figure):
+    def put_figure(self, figure):
+        self.update_flag = True
+        self._unmark_all_hexagons()
+
+        hexagons_under_figure = self._get_hexagons_under_figure(figure)
+
+        if any(hexagon.content for hexagon in hexagons_under_figure):
             return False
 
-        self.last_hexagon_add_count = len(tmp_hexagon_list)
-        for field_hexagon in tmp_hexagon_list:
+        self.last_hexagon_add_count = len(hexagons_under_figure)
+        for field_hexagon in hexagons_under_figure:
             field_hexagon.content = figure.color
-        self.update_flag = True
         return True
 
     def refresh_field(self):
@@ -323,7 +334,7 @@ class Field:
                     x_axis += D_PARAMS[direction]['x-axis']
                     y_axis += D_PARAMS[direction]['y-axis']
                     z_axis += D_PARAMS[direction]['z-axis']
-                    next_hexagon = self._get_hexagon(x_axis, y_axis, z_axis)
+                    next_hexagon = self._get_hexagon_for_axises(x_axis, y_axis, z_axis)
                     if not next_hexagon or next_hexagon.content:
                         break
                 else:
@@ -333,11 +344,23 @@ class Field:
     def get_scored_data(self):
         return self.last_hexagon_add_count, self.last_line_remove_count
 
-    def _get_hexagon(self, x_axis, y_axis, z_axis):
+    def _get_hexagon_for_axises(self, x_axis, y_axis, z_axis):
         for hexagon in self.hexagon_list:
             if hexagon.x_axis == x_axis and hexagon.y_axis == y_axis and hexagon.z_axis == z_axis:
                 return hexagon
         return None
+
+    def _get_hexagons_under_figure(self, figure):
+        result = []
+        for figure_hexagon in figure.hexagon_list:
+            for field_hexagon in self.hexagon_list:
+                if field_hexagon.collide(figure_hexagon.x0, figure_hexagon.y0):
+                    result.append(field_hexagon)
+        return result
+
+    def _unmark_all_hexagons(self):
+        for hexagon in self.hexagon_list:
+            hexagon.marked = False
 
 
 class DragAndDrop:
@@ -359,6 +382,7 @@ class DragAndDrop:
     def drag(self, delta_x, delta_y):
         if not self.figure:
             return
+        self.field.mark_hexagons_under_figure(self.figure)
         self.figure.offset(delta_x, delta_y)
         self.update_flag = True
 
