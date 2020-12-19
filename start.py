@@ -1,12 +1,13 @@
-from settings import pg, W, H, WINDOW_TITLE, FPS
-from classes import Field, Pool, DragAndDrop, Background
+from settings import pg, W, H, WINDOW_TITLE, FPS, GAME_MODE, FINAL_MODE
+from classes import Field, Pool, DragAndDrop, Background, Tab
 
 
 def init_new_game(sc):
     field = Field(sc)
     pool = Pool(sc)
     drag_and_drop = DragAndDrop(sc, pool, field)
-    return field, pool, drag_and_drop
+    tab = Tab(sc)
+    return field, pool, drag_and_drop, tab
 
 
 def main():
@@ -17,8 +18,9 @@ def main():
     clock = pg.time.Clock()
 
     background = Background(sc)
-    field, pool, drag_and_drop = init_new_game(sc)
+    field, pool, drag_and_drop, tab = init_new_game(sc)
 
+    mode = GAME_MODE
     while True:
 
         events = pg.event.get()
@@ -27,28 +29,41 @@ def main():
                 pg.quit()
                 exit()
 
-            if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
-                drag_and_drop.take(*event.pos)
+            if mode == GAME_MODE:
+                if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
+                    drag_and_drop.take(*event.pos)
 
-            if event.type == pg.MOUSEMOTION:
-                drag_and_drop.drag(*event.rel)
+                if event.type == pg.MOUSEMOTION:
+                    drag_and_drop.drag(*event.rel)
 
-            if event.type == pg.MOUSEBUTTONUP and event.button == pg.BUTTON_LEFT:
-                drop_result = drag_and_drop.drop()
-                if not drop_result:
-                    continue
+                if event.type == pg.MOUSEBUTTONUP and event.button == pg.BUTTON_LEFT:
+                    drop_result = drag_and_drop.drop()
+                    if not drop_result:
+                        continue
 
-                field.refresh_field()
-                pool.refresh_slots()
-                figures_in_pool = pool.get_figures_list()
-                if not field.check_figures_list(figures_in_pool):
-                    input('Вы проиграли')
-                    # field, pool, drag_and_drop = init_new_game(sc)
+                    field.refresh_field()
+                    pool.refresh_slots()
+
+                    score_data = field.get_scored_data()
+                    tab.update_score(*score_data)
+
+                    figures_in_pool = pool.get_figures_list()
+                    if not field.check_figures_list(figures_in_pool):
+                        tab.set_final_text()
+                        mode = FINAL_MODE
+                        break
+
+            elif mode == FINAL_MODE:
+                if event.type == pg.KEYDOWN:
+                    field, pool, drag_and_drop, tab = init_new_game(sc)
+                    mode = GAME_MODE
+                    break
 
         background.draw()
         field.draw()
         pool.draw()
         drag_and_drop.draw()
+        tab.draw()
 
         pg.display.update()
         clock.tick(FPS)

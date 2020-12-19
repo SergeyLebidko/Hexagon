@@ -2,7 +2,7 @@ import random
 from copy import deepcopy
 from math import pi, sin, cos
 from settings import pg, W, H, LAYERS_COUNT, NORMAL, D_PARAMS, EMPTY_HEXAGON_COLOR, FIGURES_DATA, COLOR_PRESETS, \
-    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE
+    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, FONT_COLOR
 from utils import create_hexagon_coords, normalize_value
 
 
@@ -54,10 +54,6 @@ class FieldHexagon(Hexagon):
         Hexagon.__init__(self, x0, y0)
         self.x_axis, self.y_axis, self.z_axis = x_axis, y_axis, z_axis
         self.content = None
-
-    # Удалить
-    def __repr__(self):
-        return f'{self.x_axis}|{self.y_axis}|{self.z_axis}|{self.content}'
 
 
 class FigureHexagon(Hexagon):
@@ -273,6 +269,10 @@ class Field:
         self.surface.set_colorkey(TRANSPARENT_COLOR)
         self.update_flag = True
 
+        # Количество добавленных на предыдущем ходу гексов и количество удаленных на предыдущем ходу линий
+        self.last_hexagon_add_count = 0
+        self.last_line_remove_count = 0
+
     def draw(self):
         if self.update_flag:
             self.surface.fill(TRANSPARENT_COLOR)
@@ -292,17 +292,20 @@ class Field:
         if len(tmp_hexagon_list) != len(figure):
             return False
 
+        self.last_hexagon_add_count = len(tmp_hexagon_list)
         for field_hexagon in tmp_hexagon_list:
             field_hexagon.content = figure.color
         self.update_flag = True
         return True
 
     def refresh_field(self):
+        self.last_line_remove_count = 0
         list_for_clear = []
         for axis in ['x_axis', 'y_axis', 'z_axis']:
             for val in range(-LAYERS_COUNT, LAYERS_COUNT + 1):
                 tmp_hexagon_list = [hexagon for hexagon in self.hexagon_list if getattr(hexagon, axis) == val]
                 if all(hexagon.content for hexagon in tmp_hexagon_list):
+                    self.last_line_remove_count += 1
                     list_for_clear.extend(tmp_hexagon_list)
 
         self.update_flag = self.update_flag or len(list_for_clear) > 0
@@ -326,6 +329,9 @@ class Field:
                 else:
                     return True
         return False
+
+    def get_scored_data(self):
+        return self.last_hexagon_add_count, self.last_line_remove_count
 
     def _get_hexagon(self, x_axis, y_axis, z_axis):
         for hexagon in self.hexagon_list:
@@ -360,13 +366,13 @@ class DragAndDrop:
         if not self.figure:
             return
 
-        result = self.field.put_figure(self.figure)
-        if not result:
+        put_result = self.field.put_figure(self.figure)
+        if not put_result:
             self.pool.put_to_pool(self.figure)
 
         self.figure = None
         self.update_flag = True
-        return result
+        return put_result
 
     def draw(self):
         if self.update_flag:
@@ -376,3 +382,35 @@ class DragAndDrop:
             self.update_flag = False
 
         self.sc.blit(self.surface, (0, 0))
+
+
+class Tab:
+    BORDER = 10
+
+    def __init__(self, sc):
+        self.sc = sc
+        self.font = pg.font.Font(None, 48)
+        self.surface = pg.Surface((W, H))
+        self.surface.set_colorkey(TRANSPARENT_COLOR)
+        self.score = 0
+        self.text = '0'
+        self.update_flag = True
+
+    def update_score(self, hexagon_count, line_count):
+        self.score += hexagon_count
+        self.score += ((10 + 10 * line_count) / 2) * line_count
+        self.text = str(int(self.score))
+        self.update_flag = True
+
+    def set_final_text(self):
+        self.text = f'Game Over. Your score: {int(self.score)}. Press any key to new game...'
+        self.update_flag = True
+
+    def draw(self):
+        if self.update_flag:
+            self.surface = self.font.render(self.text, True, FONT_COLOR)
+            self.update_flag = False
+
+        surface_rect = self.surface.get_rect()
+        x, y = W // 2 - surface_rect.width // 2, self.BORDER
+        self.sc.blit(self.surface, (x, y))
