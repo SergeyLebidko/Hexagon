@@ -24,16 +24,22 @@ class Background:
 
 class Hexagon:
 
-    def __init__(self, x0, y0, color=None):
-        self.color = color
+    def __init__(self, x0, y0):
+        self.current_scale = self.target_scale = 1
+        self.step_scale = 0
         self.x0, self.y0 = x0, y0
-        self.coords = create_hexagon_coords(x0, y0)
-        self._vectors = [(x - x0, y - y0) for x, y in self.coords]
+        self.coords = create_hexagon_coords(x0, y0, self.current_scale)
 
     def draw(self, surface):
-        if not self.color:
-            raise Exception('Not color for hexagon!')
-        pg.draw.polygon(surface, self.color, self.coords)
+        color = getattr(self, 'color')
+        if self.current_scale < self.target_scale:
+            self.current_scale = min(self.target_scale, self.current_scale + self.step_scale)
+            self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
+        elif self.current_scale > self.target_scale:
+            self.current_scale = max(self.target_scale, self.current_scale - self.step_scale)
+            self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
+
+        pg.draw.polygon(surface, color, self.coords)
         pg.draw.lines(surface, self._get_border_color(), True, self.coords)
 
     def collide(self, x, y):
@@ -50,19 +56,30 @@ class Hexagon:
 
         return True
 
-    def scale(self, factor):
-        self.coords = [(self.x0 + factor * dx, self.y0 + factor * dy) for dx, dy in self._vectors]
+    def set_scale(self, next_scale):
+        self.current_scale = self.target_scale = next_scale
+        self.step_scale = 1
+        self.coords = create_hexagon_coords(self.x0, self.y0, next_scale)
+
+    def start_scale_process(self, target_scale, step_scale):
+        self.target_scale = target_scale
+        self.step_scale = step_scale
+
+    def has_process(self):
+        return self.current_scale != self.target_scale
 
     def _get_border_color(self):
-        return max(10, self.color[0] - 50), max(10, self.color[1] - 50), max(10, self.color[2] - 50)
+        color = getattr(self, 'color')
+        return max(10, color[0] - 50), max(10, color[1] - 50), max(10, color[2] - 50)
 
 
 class FieldHexagon(Hexagon):
 
     def __init__(self, x0, y0, x_axis, y_axis, z_axis):
-        Hexagon.__init__(self, x0, y0, EMPTY_HEXAGON_COLOR)
+        Hexagon.__init__(self, x0, y0)
         self.x_axis, self.y_axis, self.z_axis = x_axis, y_axis, z_axis
         self.content = False
+        self.color = EMPTY_HEXAGON_COLOR
 
 
 class FigureHexagon(Hexagon):
@@ -122,9 +139,16 @@ class Figure:
         for hexagon in self.hexagon_list:
             hexagon.draw(surface)
 
-    def scale_hexagons(self, factor):
+    def set_scale(self, factor):
         for hexagon in self.hexagon_list:
-            hexagon.scale(factor)
+            hexagon.set_scale(factor)
+
+    def start_scale_process(self, target_scale, step_scale):
+        for hexagon in self.hexagon_list:
+            hexagon.start_scale_process(target_scale, step_scale)
+
+    def has_process(self):
+        return any(hexagon.has_process() for hexagon in self.hexagon_list)
 
     def __len__(self):
         return len(self.hexagon_list)
@@ -132,7 +156,6 @@ class Figure:
 
 class Pool:
     BORDER = 10
-    ANIMATION_STEP = 0.2
 
     def __init__(self, sc):
         self.sc = sc
@@ -173,8 +196,8 @@ class Pool:
         self.surface.set_colorkey(TRANSPARENT_COLOR)
         self.update_flag = True
 
-        # Данные для воспроизведения анимации появления фигуры
-        self.animation = {'tape': False}
+        # Данные для воспроизведения анимации
+        self.animation = []
 
         # Заполняем слоты
         self.refresh_slots()
@@ -191,16 +214,7 @@ class Pool:
 
     def refresh_slots(self):
         """Метод проверяет слоты и если находит пустой - добавляет в него фигуру из списка заранее созданных"""
-        empty_slots = [slot for slot in self.slots if not slot['figure']]
-
-        if empty_slots:
-            self.animation = {
-                'tape': True,
-                'scale': 0.1,
-                'figures': []
-            }
-
-        for slot in empty_slots:
+        for slot in self.slots:
             if slot['figure']:
                 continue
 
@@ -209,8 +223,9 @@ class Pool:
             self._add_figure_to_slot(figure, slot)
 
             # Добавляем анимацию появления
-            figure.scale_hexagons(0.1)
-            self.animation['figures'].append(figure)
+            figure.set_scale(0.1)
+            figure.start_scale_process(1, 0.2)
+            self.animation.append(figure)
 
     def draw(self):
         if self.update_flag:
@@ -222,16 +237,7 @@ class Pool:
                     continue
                 figure.draw(self.surface)
 
-            # Если нужно - обрабатываем анимацию
-            if self.animation['tape']:
-                if self.animation['scale'] == 1:
-                    self.animation['tape'] = False
-                else:
-                    self.animation['scale'] = min(1, self.animation['scale'] + self.ANIMATION_STEP)
-                    for figure in self.animation['figures']:
-                        figure.scale_hexagons(self.animation['scale'])
-
-            self.update_flag = self.animation['tape']
+            self.update_flag = any(slot['figure'].has_process() for slot in self.slots if slot['figure'])
 
         self.sc.blit(self.surface, (0, 0))
 
@@ -260,7 +266,6 @@ class Pool:
 
 
 class Field:
-    ANIMATION_STEP = 0.1
 
     def __init__(self, sc):
         self.sc = sc
@@ -321,8 +326,8 @@ class Field:
         self.last_hexagon_add_count = 0
         self.last_line_remove_count = 0
 
-        # Данные для воспроизведения анимации исчезновения гексов
-        self.animation = {'tape': False}
+        # Данные для воспроизведения анимации
+        self.animation = []
 
     def draw(self):
         if self.update_flag:
@@ -331,16 +336,10 @@ class Field:
                 hexagon.draw(self.surface)
 
             # Если нужно - отрисовываем кадр анимации
-            if self.animation['tape']:
-                self.animation['scale'] = max(0, self.animation['scale'] - self.ANIMATION_STEP)
-                if self.animation['scale'] == 0:
-                    self.animation['tape'] = False
-                else:
-                    for hexagon in self.animation['hexagon_list']:
-                        hexagon.scale(self.animation['scale'])
-                        hexagon.draw(self.surface)
-
-            self.update_flag = self.animation['tape']
+            self.update_flag = any(hexagon.has_process() for hexagon in self.animation)
+            if self.update_flag:
+                for hexagon in self.animation:
+                    hexagon.draw(self.surface)
 
         self.sc.blit(self.surface, (0, 0))
 
@@ -391,12 +390,10 @@ class Field:
         self.update_flag = True
 
         # Создаем данные для анимации
-        self.animation = {
-            'tape': True,
-            'scale': 1,
-            'hexagon_list': deepcopy(list_for_clear)
+        self.animation = deepcopy(list_for_clear)
+        for hexagon in self.animation:
+            hexagon.start_scale_process(0.1, 0.1)
 
-        }
         for hexagon in list_for_clear:
             hexagon.content = False
             hexagon.color = EMPTY_HEXAGON_COLOR
@@ -459,7 +456,7 @@ class DragAndDrop:
     def take(self, x, y):
         self.figure = self.pool.take_from_pool(x, y)
         if self.figure:
-            self.figure.scale_hexagons(0.8)
+            self.figure.set_scale(0.8)
             self.update_flag = True
 
     def drag(self, delta_x, delta_y):
@@ -475,7 +472,7 @@ class DragAndDrop:
 
         put_result = self.field.put_figure(self.figure)
         if not put_result:
-            self.figure.scale_hexagons(1)
+            self.figure.set_scale(1)
             self.pool.put_to_pool(self.figure)
 
         self.figure = None

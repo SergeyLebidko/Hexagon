@@ -2,12 +2,17 @@ from math import pi, cos, sin
 from settings import RADIUS, HEX_MARGIN, SMOOTH_FACTOR, SMOOTH_DEPTH
 
 
-def create_hexagon_coords(x0, y0):
+def create_hexagon_coords(x0, y0, scale):
     alpha = pi / 6
     delta_alpha = pi / 3
     coords = []
     for _ in range(6):
-        coords.append((x0 + (RADIUS - HEX_MARGIN) * cos(alpha), y0 - (RADIUS - HEX_MARGIN) * sin(alpha)))
+        coords.append(
+            (
+                x0 + scale * (RADIUS - HEX_MARGIN) * cos(alpha),
+                y0 - scale * (RADIUS - HEX_MARGIN) * sin(alpha)
+            )
+        )
         alpha += delta_alpha
     return smooth(coords, SMOOTH_DEPTH)
 
