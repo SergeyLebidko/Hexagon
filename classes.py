@@ -501,23 +501,24 @@ class Tab:
         self.surface = pg.Surface((W, H))
         self.surface.set_colorkey(TRANSPARENT_COLOR)
         self.score = 0
-        self.text = '0'
+        self.target_score = 0
+        self.msg_template = '{SCORE}'
         self.update_flag = True
 
     def update_score(self, hexagon_count, line_count):
-        self.score += hexagon_count
-        self.score += ((10 + 10 * line_count) / 2) * line_count
-        self.text = str(int(self.score))
+        self.target_score = self.score + hexagon_count + ((10 + 10 * line_count) / 2) * line_count
         self.update_flag = True
 
     def set_final_text(self):
-        self.text = f'Game Over. Your score: {int(self.score)}. Press any key to new game...'
+        self.msg_template = 'Game Over. Your score: {SCORE}. Press any key to new game...'
         self.update_flag = True
 
     def draw(self):
         if self.update_flag:
-            self.surface = self.font.render(self.text, True, FONT_COLOR)
-            self.update_flag = False
+            if self.score < self.target_score:
+                self.score += 1
+            self.surface = self.font.render(self.msg_template.format(SCORE=self.score), True, FONT_COLOR)
+            self.update_flag = (self.score < self.target_score)
 
         surface_rect = self.surface.get_rect()
         x, y = W // 2 - surface_rect.width // 2, self.BORDER
