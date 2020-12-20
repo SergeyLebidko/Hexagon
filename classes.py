@@ -292,12 +292,23 @@ class Field:
         self.last_hexagon_add_count = 0
         self.last_line_remove_count = 0
 
+        # Данные для воспроизведения анимации исчезновения гексов
+        self.animation = None
+
     def draw(self):
         if self.update_flag:
             self.surface.fill(TRANSPARENT_COLOR)
             for hexagon in self.hexagon_list:
                 hexagon.draw(self.surface)
-            self.update_flag = False
+
+            # Если нужно - отрисовываем кадр анимации
+            if self.animation and self.animation['scale'] >= 0:
+                for hexagon in self.animation['hexagon_list']:
+                    hexagon.scale(self.animation['scale'])
+                    hexagon.draw(self.surface)
+                self.animation['scale'] -= 0.1
+            else:
+                self.update_flag = False
         self.sc.blit(self.surface, (0, 0))
 
     def mark_hexagons_under_figure(self, figure):
@@ -342,7 +353,15 @@ class Field:
                     self.last_line_remove_count += 1
                     list_for_clear.extend(tmp_hexagon_list)
 
-        self.update_flag = self.update_flag or len(list_for_clear) > 0
+        if not list_for_clear:
+            return
+        self.update_flag = True
+
+        # Создаем данные для анимации
+        self.animation = {
+            'scale': 1,
+            'hexagon_list': deepcopy(list_for_clear)
+        }
         for hexagon in list_for_clear:
             hexagon.content = False
             hexagon.color = EMPTY_HEXAGON_COLOR
