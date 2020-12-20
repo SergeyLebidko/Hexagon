@@ -13,6 +13,7 @@ def create_hexagon_coords(x0, y0):
 
 
 def smooth(coords, depth):
+    """Функция сглаживает края гекса"""
     if depth == 0:
         return coords
 

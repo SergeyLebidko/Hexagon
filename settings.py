@@ -1,6 +1,6 @@
 from math import pi, cos
 
-# Добавлен сюда, чтобы избежать циклического импорта в других модулях
+# Импорт pygame добавлен сюда, чтобы избежать циклического импорта в других модулях
 import pygame as pg
 
 # Параметры окна
@@ -85,7 +85,3 @@ FIGURES_DATA = [
 # Режимы работы
 GAME_MODE = 'game_mode'
 FINAL_MODE = 'final_mode'
-
-# Коэффициенты масштабирования для эффекта взятия фигуры мышкой
-SCALE_FACTOR_LESS = 0.8
-SCALE_FACTOR_MORE = 1 / SCALE_FACTOR_LESS

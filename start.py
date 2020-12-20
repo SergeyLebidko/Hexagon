@@ -47,7 +47,7 @@ def main():
                     score_data = field.get_scored_data()
                     tab.update_score(*score_data)
 
-                    figures_in_pool = pool.get_figures_list()
+                    figures_in_pool = pool.get_current_figures_list()
                     if not field.check_figures_list(figures_in_pool):
                         tab.set_final_text()
                         mode = FINAL_MODE

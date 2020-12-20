@@ -2,7 +2,7 @@ import random
 from copy import deepcopy
 from math import pi, sin, cos
 from settings import pg, W, H, LAYERS_COUNT, NORMAL, D_PARAMS, EMPTY_HEXAGON_COLOR, FIGURES_DATA, COLOR_PRESETS, \
-    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, FONT_COLOR, MARKED_HEXAGON_COLOR, SCALE_FACTOR_LESS, SCALE_FACTOR_MORE
+    TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, FONT_COLOR, MARKED_HEXAGON_COLOR
 from utils import create_hexagon_coords, normalize_value
 
 
@@ -24,21 +24,22 @@ class Background:
 
 class Hexagon:
 
-    def __init__(self, x0, y0):
+    def __init__(self, x0, y0, color=None):
+        self.color = color
         self.x0, self.y0 = x0, y0
         self.coords = create_hexagon_coords(x0, y0)
+        self._vectors = [(x - x0, y - y0) for x, y in self.coords]
 
-    def draw(self, surface, color):
-        pg.draw.polygon(surface, color, self.coords)
-        r, g, b = max(10, color[0] - 50), max(10, color[1] - 50), max(10, color[2] - 50)
-        pg.draw.lines(surface, (r, g, b), True, self.coords)
+    def draw(self, surface):
+        if not self.color:
+            raise Exception('Not color for hexagon!')
+        pg.draw.polygon(surface, self.color, self.coords)
+        pg.draw.lines(surface, self._get_border_color(), True, self.coords)
 
     def collide(self, x, y):
         tmp_coords = self.coords + [self.coords[0]]
         for (x1, y1), (x2, y2) in ((tmp_coords[index], tmp_coords[index + 1]) for index in range(len(tmp_coords) - 1)):
-            a = y2 - y1
-            b = x1 - x2
-            c = y1 * (x2 - x1) - x1 * (y2 - y1)
+            a, b, c = y2 - y1, x1 - x2, y1 * (x2 - x1) - x1 * (y2 - y1)
             dot_val = normalize_value(a * x + b * y + c)
             if dot_val == 0:
                 return True
@@ -49,14 +50,19 @@ class Hexagon:
 
         return True
 
+    def scale(self, factor):
+        self.coords = [(self.x0 + factor * dx, self.y0 + factor * dy) for dx, dy in self._vectors]
+
+    def _get_border_color(self):
+        return max(10, self.color[0] - 50), max(10, self.color[1] - 50), max(10, self.color[2] - 50)
+
 
 class FieldHexagon(Hexagon):
 
     def __init__(self, x0, y0, x_axis, y_axis, z_axis):
-        Hexagon.__init__(self, x0, y0)
+        Hexagon.__init__(self, x0, y0, EMPTY_HEXAGON_COLOR)
         self.x_axis, self.y_axis, self.z_axis = x_axis, y_axis, z_axis
-        self.content = None
-        self.marked = False
+        self.content = False
 
 
 class FigureHexagon(Hexagon):
@@ -107,19 +113,18 @@ class Figure:
         for hexagon in self.hexagon_list:
             hexagon.offset(delta_x, delta_y)
 
-    def draw(self, surface):
-        if not self.color:
-            raise Exception('Figure without color!')
+    def set_color(self, color):
+        self.color = color
         for hexagon in self.hexagon_list:
-            hexagon.draw(surface, self.color)
+            hexagon.color = color
+
+    def draw(self, surface):
+        for hexagon in self.hexagon_list:
+            hexagon.draw(surface)
 
     def scale_hexagons(self, factor):
         for hexagon in self.hexagon_list:
-            next_coords = []
-            for x, y in hexagon.coords:
-                vector = x - hexagon.x0, y - hexagon.y0
-                next_coords.append((hexagon.x0 + factor * vector[0], hexagon.y0 + factor * vector[1]))
-            hexagon.coords = next_coords
+            hexagon.scale(factor)
 
     def __len__(self):
         return len(self.hexagon_list)
@@ -181,12 +186,13 @@ class Pool:
         self.update_flag = True
 
     def refresh_slots(self):
+        """Метод проверяет слоты и если находит пустой - добавляет в него фигуру из списка заранее созданных"""
         for slot in self.slots:
             if slot['figure']:
                 continue
 
             figure = deepcopy(random.choice(self.figures_pool))
-            figure.color = random.choice(COLOR_PRESETS)
+            figure.set_color(random.choice(COLOR_PRESETS))
             self._add_figure_to_slot(figure, slot)
 
     def draw(self):
@@ -202,6 +208,7 @@ class Pool:
         self.sc.blit(self.surface, (0, 0))
 
     def take_from_pool(self, x, y):
+        """Метод отдает фигуру, если переданная точка попадает в один из её гексов"""
         for slot in self.slots:
             figure = slot['figure']
             if not figure:
@@ -214,12 +221,13 @@ class Pool:
         return None
 
     def put_to_pool(self, figure):
+        """Метод принимает фигуру и размещает ее в первом свободном слоте"""
         for slot in self.slots:
             if slot['figure']:
                 continue
             self._add_figure_to_slot(figure, slot)
 
-    def get_figures_list(self):
+    def get_current_figures_list(self):
         return [slot['figure'] for slot in self.slots if slot['figure']]
 
 
@@ -288,38 +296,43 @@ class Field:
         if self.update_flag:
             self.surface.fill(TRANSPARENT_COLOR)
             for hexagon in self.hexagon_list:
-                if hexagon.content:
-                    color = hexagon.content
-                else:
-                    if hexagon.marked:
-                        color = MARKED_HEXAGON_COLOR
-                    else:
-                        color = EMPTY_HEXAGON_COLOR
-                hexagon.draw(self.surface, color)
+                hexagon.draw(self.surface)
             self.update_flag = False
         self.sc.blit(self.surface, (0, 0))
 
     def mark_hexagons_under_figure(self, figure):
-        hexagons_under_figure = self._get_hexagons_under_figure(figure)
+        """Метод перебирает гексы и помечает все свободные, расположенные под переданной фигурой"""
+        free_hexagons_under_figure = self._get_free_hexagons_under_figure(figure)
         for hexagon in self.hexagon_list:
-            hexagon.marked = (hexagon in hexagons_under_figure) and (hexagon.content is None)
-        self.update_flag = True
+            if not hexagon.content:
+                color_before = hexagon.color
+                if hexagon in free_hexagons_under_figure:
+                    hexagon.color = MARKED_HEXAGON_COLOR
+                else:
+                    hexagon.color = EMPTY_HEXAGON_COLOR
+                if hexagon.color != color_before:
+                    self.update_flag = True
 
     def put_figure(self, figure):
-        self.update_flag = True
-        self._unmark_all_hexagons()
+        """Метод принимает фигуру, пытается разместить её на игровом поле и возвращет True, если это удалось"""
+        free_hexagons_under_figure = self._get_free_hexagons_under_figure(figure)
 
-        hexagons_under_figure = self._get_hexagons_under_figure(figure)
-
-        if any(hexagon.content for hexagon in hexagons_under_figure) or len(hexagons_under_figure) < len(figure):
+        if len(free_hexagons_under_figure) < len(figure):
+            if free_hexagons_under_figure:
+                for hexagon in free_hexagons_under_figure:
+                    hexagon.color = EMPTY_HEXAGON_COLOR
+                self.update_flag = True
             return False
 
-        self.last_hexagon_add_count = len(hexagons_under_figure)
-        for field_hexagon in hexagons_under_figure:
-            field_hexagon.content = figure.color
+        self.last_hexagon_add_count = len(free_hexagons_under_figure)
+        for field_hexagon in free_hexagons_under_figure:
+            field_hexagon.content = True
+            field_hexagon.color = figure.color
+        self.update_flag = True
         return True
 
     def refresh_field(self):
+        """Метод ищет заполненные строки и удаляет их, если находит"""
         self.last_line_remove_count = 0
         list_for_clear = []
         for axis in ['x_axis', 'y_axis', 'z_axis']:
@@ -331,9 +344,11 @@ class Field:
 
         self.update_flag = self.update_flag or len(list_for_clear) > 0
         for hexagon in list_for_clear:
-            hexagon.content = None
+            hexagon.content = False
+            hexagon.color = EMPTY_HEXAGON_COLOR
 
     def check_figures_list(self, figures_list):
+        """Метод проверяет список фигур и возвращает True, если хотя бы одну из них можно разместить на гровом поле"""
         for figure in figures_list:
             for hexagon in self.hexagon_list:
                 if hexagon.content:
@@ -344,7 +359,7 @@ class Field:
                     x_axis += D_PARAMS[direction]['x-axis']
                     y_axis += D_PARAMS[direction]['y-axis']
                     z_axis += D_PARAMS[direction]['z-axis']
-                    next_hexagon = self._get_hexagon_for_axises(x_axis, y_axis, z_axis)
+                    next_hexagon = self._get_hexagons_for_axises(x_axis, y_axis, z_axis)
                     if not next_hexagon or next_hexagon.content:
                         break
                 else:
@@ -352,25 +367,28 @@ class Field:
         return False
 
     def get_scored_data(self):
+        """
+        Метод возвращает количество гексов в последней размещенной на поле фигуре и
+        количество удаленных при последней проверке линий
+        """
         return self.last_hexagon_add_count, self.last_line_remove_count
 
-    def _get_hexagon_for_axises(self, x_axis, y_axis, z_axis):
+    def _get_hexagons_for_axises(self, x_axis, y_axis, z_axis):
         for hexagon in self.hexagon_list:
             if hexagon.x_axis == x_axis and hexagon.y_axis == y_axis and hexagon.z_axis == z_axis:
                 return hexagon
         return None
 
-    def _get_hexagons_under_figure(self, figure):
+    def _get_free_hexagons_under_figure(self, figure):
         result = []
-        for figure_hexagon in figure.hexagon_list:
-            for field_hexagon in self.hexagon_list:
+        for field_hexagon in self.hexagon_list:
+            if field_hexagon.content:
+                continue
+            for figure_hexagon in figure.hexagon_list:
                 if field_hexagon.collide(figure_hexagon.x0, figure_hexagon.y0):
                     result.append(field_hexagon)
-        return result
 
-    def _unmark_all_hexagons(self):
-        for hexagon in self.hexagon_list:
-            hexagon.marked = False
+        return result
 
 
 class DragAndDrop:
@@ -387,7 +405,7 @@ class DragAndDrop:
     def take(self, x, y):
         self.figure = self.pool.take_from_pool(x, y)
         if self.figure:
-            self.figure.scale_hexagons(SCALE_FACTOR_LESS)
+            self.figure.scale_hexagons(0.8)
             self.update_flag = True
 
     def drag(self, delta_x, delta_y):
@@ -403,7 +421,7 @@ class DragAndDrop:
 
         put_result = self.field.put_figure(self.figure)
         if not put_result:
-            self.figure.scale_hexagons(SCALE_FACTOR_MORE)
+            self.figure.scale_hexagons(1)
             self.pool.put_to_pool(self.figure)
 
         self.figure = None
