@@ -132,6 +132,7 @@ class Figure:
 
 class Pool:
     BORDER = 10
+    ANIMATION_STEP = 0.2
 
     def __init__(self, sc):
         self.sc = sc
@@ -172,6 +173,9 @@ class Pool:
         self.surface.set_colorkey(TRANSPARENT_COLOR)
         self.update_flag = True
 
+        # Данные для воспроизведения анимации появления фигуры
+        self.animation = {'tape': False}
+
         # Заполняем слоты
         self.refresh_slots()
 
@@ -187,7 +191,16 @@ class Pool:
 
     def refresh_slots(self):
         """Метод проверяет слоты и если находит пустой - добавляет в него фигуру из списка заранее созданных"""
-        for slot in self.slots:
+        empty_slots = [slot for slot in self.slots if not slot['figure']]
+
+        if empty_slots:
+            self.animation = {
+                'tape': True,
+                'scale': 0.1,
+                'figures': []
+            }
+
+        for slot in empty_slots:
             if slot['figure']:
                 continue
 
@@ -195,15 +208,30 @@ class Pool:
             figure.set_color(random.choice(COLOR_PRESETS))
             self._add_figure_to_slot(figure, slot)
 
+            # Добавляем анимацию появления
+            figure.scale_hexagons(0.1)
+            self.animation['figures'].append(figure)
+
     def draw(self):
         if self.update_flag:
             self.surface.fill(TRANSPARENT_COLOR)
+
             for slot in self.slots:
                 figure = slot['figure']
-                if figure:
-                    figure.draw(self.surface)
+                if not figure:
+                    continue
+                figure.draw(self.surface)
 
-            self.update_flag = False
+            # Если нужно - обрабатываем анимацию
+            if self.animation['tape']:
+                if self.animation['scale'] == 1:
+                    self.animation['tape'] = False
+                else:
+                    self.animation['scale'] = min(1, self.animation['scale'] + self.ANIMATION_STEP)
+                    for figure in self.animation['figures']:
+                        figure.scale_hexagons(self.animation['scale'])
+
+            self.update_flag = self.animation['tape']
 
         self.sc.blit(self.surface, (0, 0))
 
@@ -232,6 +260,7 @@ class Pool:
 
 
 class Field:
+    ANIMATION_STEP = 0.1
 
     def __init__(self, sc):
         self.sc = sc
@@ -293,7 +322,7 @@ class Field:
         self.last_line_remove_count = 0
 
         # Данные для воспроизведения анимации исчезновения гексов
-        self.animation = None
+        self.animation = {'tape': False}
 
     def draw(self):
         if self.update_flag:
@@ -302,13 +331,17 @@ class Field:
                 hexagon.draw(self.surface)
 
             # Если нужно - отрисовываем кадр анимации
-            if self.animation and self.animation['scale'] >= 0:
-                for hexagon in self.animation['hexagon_list']:
-                    hexagon.scale(self.animation['scale'])
-                    hexagon.draw(self.surface)
-                self.animation['scale'] -= 0.1
-            else:
-                self.update_flag = False
+            if self.animation['tape']:
+                self.animation['scale'] = max(0, self.animation['scale'] - self.ANIMATION_STEP)
+                if self.animation['scale'] == 0:
+                    self.animation['tape'] = False
+                else:
+                    for hexagon in self.animation['hexagon_list']:
+                        hexagon.scale(self.animation['scale'])
+                        hexagon.draw(self.surface)
+
+            self.update_flag = self.animation['tape']
+
         self.sc.blit(self.surface, (0, 0))
 
     def mark_hexagons_under_figure(self, figure):
@@ -359,8 +392,10 @@ class Field:
 
         # Создаем данные для анимации
         self.animation = {
+            'tape': True,
             'scale': 1,
             'hexagon_list': deepcopy(list_for_clear)
+
         }
         for hexagon in list_for_clear:
             hexagon.content = False
