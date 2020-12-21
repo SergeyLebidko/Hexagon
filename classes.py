@@ -23,21 +23,18 @@ class Background:
 
 
 class Hexagon:
-    FAST_SCALE = 0.2
-    NORMAL_SCALE = 0.1
+    FAST_SCALE_SPEED = 0.2
+    NORMAL_SCALE_SPEED = 0.1
 
     def __init__(self, x0, y0, ):
         self.x0, self.y0 = x0, y0
         self.current_scale = 1
         self.coords = create_hexagon_coords(x0, y0, self.current_scale)
-
-        self.target_scale = self.current_scale
-        self.step_scale = 0
+        self.process_list = []
 
     def draw(self, surface):
         color = getattr(self, 'color')
-        if self.has_process():
-            self._process()
+        self._execute_process_list()
         pg.draw.polygon(surface, color, self.coords)
         pg.draw.lines(surface, self._get_border_color(), True, self.coords)
 
@@ -55,29 +52,38 @@ class Hexagon:
 
         return True
 
-    def set_scale(self, next_scale):
-        self.current_scale = self.target_scale = next_scale
-        self.step_scale = 0
+    def scale(self, next_scale):
+        self.current_scale = next_scale
         self.coords = create_hexagon_coords(self.x0, self.y0, next_scale)
 
     def start_scale_process(self, target_scale, step_scale):
-        self.target_scale = target_scale
-        self.step_scale = step_scale
+        def process():
+            if self.current_scale < target_scale:
+                self.current_scale = min(target_scale, self.current_scale + step_scale)
+                self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
+            elif self.current_scale > target_scale:
+                self.current_scale = max(target_scale, self.current_scale - step_scale)
+                self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
+            return self.current_scale == target_scale
+
+        self.process_list.append(process)
 
     def has_process(self):
-        return self.current_scale != self.target_scale
-
-    def _process(self):
-        if self.current_scale < self.target_scale:
-            self.current_scale = min(self.target_scale, self.current_scale + self.step_scale)
-            self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
-        elif self.current_scale > self.target_scale:
-            self.current_scale = max(self.target_scale, self.current_scale - self.step_scale)
-            self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
+        return len(self.process_list) != 0
 
     def _get_border_color(self):
         color = getattr(self, 'color')
         return max(10, color[0] - 50), max(10, color[1] - 50), max(10, color[2] - 50)
+
+    def _execute_process_list(self):
+        if not self.process_list:
+            return
+        next_process_list = []
+        for process in self.process_list:
+            end_flag = process()
+            if not end_flag:
+                next_process_list.append(process)
+        self.process_list = next_process_list
 
 
 class FieldHexagon(Hexagon):
@@ -100,83 +106,82 @@ class FigureHexagon(Hexagon):
         self.x0, self.y0 = self.x0 + delta_x, self.y0 + delta_y
         self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
 
-    def start_motion_process(self, target_x, target_y):
-        self.target_x0, self.target_y0 = target_x, target_y
+    def start_offset_process(self, dx, dy):
+        target_x, target_y = self.x0 + dx, self.y0 + dy
 
-    def _process(self):
-        Hexagon._process(self)
-        if (self.x0, self.y0) == (self.target_x0, self.target_y0):
-            return
+        def process():
+            current_distance = get_distance(self.x0, self.y0, target_x, target_y)
+            delta_x = self.STEP_MOTION * ((target_x - self.x0) / current_distance)
+            delta_y = self.STEP_MOTION * ((target_y - self.y0) / current_distance)
+            next_x0, next_y0 = self.x0 + delta_x, self.y0 + delta_y
+            next_distance = get_distance(next_x0, next_y0, target_x, target_y)
+            if next_distance < current_distance:
+                self.offset(delta_x, delta_y)
+            else:
+                self.x0, self.y0 = target_x, target_y
+                self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
+            return (self.x0, self.y0) == (target_x, target_y)
 
-        current_distance = get_distance(self.x0, self.y0, self.target_x0, self.target_y0)
-        delta_x = self.STEP_MOTION * ((self.target_x0 - self.x0) / current_distance)
-        delta_y = self.STEP_MOTION * ((self.target_y0 - self.y0) / current_distance)
-        next_x0, next_y0 = self.x0 + delta_x, self.y0 + delta_y
-        next_distance = get_distance(next_x0, next_y0, self.target_x0, self.target_y0)
-        if next_distance < current_distance:
-            self.offset(delta_x, delta_y)
-        else:
-            self.x0, self.y0 = self.target_x0, self.target_y0 = next_x0, next_y0
-            self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
-
-    def has_process(self):
-        return Hexagon.has_process(self) or ((self.x0, self.y0) != (self.target_x0, self.target_y0))
+        self.process_list.append(process)
 
 
 class Figure:
 
-    def __init__(self):
-        self.hexagon_list = []
-        self.color = None
-        self.data_for_create = None
+    def __init__(self, hexagon_list, data_for_create):
+        self._color = None
+        self.hexagon_list = hexagon_list
+        self.data_for_create = data_for_create
+        self.width = self.max_x - self.min_x
+        self.height = self.max_y - self.min_y
 
     @property
     def min_x(self):
-        return min(coord[0] for hexagon in self.hexagon_list for coord in hexagon.coords)
+        return min(x for hexagon in self.hexagon_list for x, _ in hexagon.coords)
 
     @property
     def max_x(self):
-        return max(coord[0] for hexagon in self.hexagon_list for coord in hexagon.coords)
+        return max(x for hexagon in self.hexagon_list for x, _ in hexagon.coords)
 
     @property
     def min_y(self):
-        return min(coord[1] for hexagon in self.hexagon_list for coord in hexagon.coords)
+        return min(y for hexagon in self.hexagon_list for _, y in hexagon.coords)
 
     @property
     def max_y(self):
-        return max(coord[1] for hexagon in self.hexagon_list for coord in hexagon.coords)
+        return max(y for hexagon in self.hexagon_list for _, y in hexagon.coords)
 
     @property
-    def width(self):
-        return self.max_x - self.min_x
+    def color(self):
+        return self._color
 
-    @property
-    def height(self):
-        return self.max_y - self.min_y
+    @color.setter
+    def color(self, color):
+        self._color = color
+        for hexagon in self.hexagon_list:
+            hexagon.color = color
 
     def collide(self, x, y):
         return any(hexagon.collide(x, y) for hexagon in self.hexagon_list)
-
-    def offset(self, delta_x, delta_y):
-        for hexagon in self.hexagon_list:
-            hexagon.offset(delta_x, delta_y)
-
-    def set_color(self, color):
-        self.color = color
-        for hexagon in self.hexagon_list:
-            hexagon.color = color
 
     def draw(self, surface):
         for hexagon in self.hexagon_list:
             hexagon.draw(surface)
 
-    def set_scale(self, factor):
+    def offset(self, delta_x, delta_y):
         for hexagon in self.hexagon_list:
-            hexagon.set_scale(factor)
+            hexagon.offset(delta_x, delta_y)
+
+    def scale(self, factor):
+        for hexagon in self.hexagon_list:
+            hexagon.scale(factor)
 
     def start_scale_process(self, target_scale, step_scale):
         for hexagon in self.hexagon_list:
             hexagon.start_scale_process(target_scale, step_scale)
+
+    def start_offset_process(self, dx, dy):
+        for hexagon in self.hexagon_list:
+            hexagon.start_offset_process(dx, dy)
 
     def has_process(self):
         return any(hexagon.has_process() for hexagon in self.hexagon_list)
@@ -194,10 +199,10 @@ class Pool:
 
         # Генерируем все виды фигур
         for figure_data in FIGURES_DATA:
+            hexagon_list = []
             x0 = y0 = 0
-            figure = Figure()
             last_hexagon = FigureHexagon(x0, y0)
-            figure.hexagon_list.append(last_hexagon)
+            hexagon_list.append(last_hexagon)
 
             for direction in figure_data:
                 alpha = pi / 3 + direction * (pi / 3)
@@ -205,9 +210,9 @@ class Pool:
                     last_hexagon.x0 + 2 * NORMAL * cos(alpha),
                     last_hexagon.y0 - 2 * NORMAL * sin(alpha)
                 )
-                figure.hexagon_list.append(last_hexagon)
+                hexagon_list.append(last_hexagon)
 
-            figure.data_for_create = figure_data
+            figure = Figure(hexagon_list, figure_data)
             self.figures_pool.append(figure)
 
         # Определяем максимальные габариты фигур
@@ -227,45 +232,24 @@ class Pool:
         self.surface.set_colorkey(TRANSPARENT_COLOR)
         self.update_flag = True
 
-        # Данные для воспроизведения анимации
-        self.animation = []
-
         # Заполняем слоты
         self.refresh_slots()
-
-    def _get_next_center_coords_figure_for_slot(self, figure, slot):
-        x_anchor = slot['x'] + self.slot_width // 2 - figure.width // 2
-        y_anchor = slot['y'] + self.slot_height // 2 - figure.height // 2
-        delta_x, delta_y = x_anchor - figure.min_x, y_anchor - figure.min_y
-
-        result = []
-        for hexagon in figure.hexagon_list:
-            result.append((hexagon.x0 + delta_x, hexagon.y0 + delta_y))
-        return result
-
-    def _add_figure_to_slot(self, figure, slot):
-        x_anchor = slot['x'] + self.slot_width // 2 - figure.width // 2
-        y_anchor = slot['y'] + self.slot_height // 2 - figure.height // 2
-        delta_x, delta_y = x_anchor - figure.min_x, y_anchor - figure.min_y
-        figure.offset(delta_x, delta_y)
-
-        slot['figure'] = figure
-        self.update_flag = True
 
     def refresh_slots(self):
         """Метод проверяет слоты и если находит пустой - добавляет в него фигуру из списка заранее созданных"""
         for slot in self.slots:
             if slot['figure']:
                 continue
-
             figure = deepcopy(random.choice(self.figures_pool))
-            figure.set_color(random.choice(COLOR_PRESETS))
-            self._add_figure_to_slot(figure, slot)
+            figure.color = random.choice(COLOR_PRESETS)
+            anchor_x, anchor_y = self._get_slot_anchor_point(slot, figure)
+            figure.offset(anchor_x - figure.min_x, anchor_y - figure.min_y)
+            slot['figure'] = figure
+            self.update_flag = True
 
             # Добавляем анимацию появления
-            figure.set_scale(0.1)
-            figure.start_scale_process(1, Hexagon.FAST_SCALE)
-            self.animation.append(figure)
+            figure.scale(0.1)
+            figure.start_scale_process(1, Hexagon.FAST_SCALE_SPEED)
 
     def draw(self):
         if self.update_flag:
@@ -299,15 +283,18 @@ class Pool:
         for slot in self.slots:
             if slot['figure']:
                 continue
-
             slot['figure'] = figure
-            next_coords = self._get_next_center_coords_figure_for_slot(figure, slot)
-            for hexagon, (x, y) in zip(figure.hexagon_list, next_coords):
-                hexagon.start_motion_process(x, y)
+
+            # Добавляем анимацию перемещения фигуры в слот
+            anchor_x, anchor_y = self._get_slot_anchor_point(slot, figure)
+            figure.start_offset_process(anchor_x - figure.min_x, anchor_y - figure.min_y)
             self.update_flag = True
 
     def get_current_figures_list(self):
         return [slot['figure'] for slot in self.slots if slot['figure']]
+
+    def _get_slot_anchor_point(self, slot, figure):
+        return slot['x'] + self.slot_width / 2 - figure.width / 2, slot['y'] + self.slot_height / 2 - figure.height / 2
 
 
 class Field:
@@ -437,7 +424,7 @@ class Field:
         # Создаем данные для анимации
         self.animation = deepcopy(list_for_clear)
         for hexagon in self.animation:
-            hexagon.start_scale_process(0.1, 0.1)
+            hexagon.start_scale_process(0.1, Hexagon.NORMAL_SCALE_SPEED)
 
         for hexagon in list_for_clear:
             hexagon.content = False
@@ -501,7 +488,7 @@ class DragAndDrop:
     def take(self, x, y):
         self.figure = self.pool.take_from_pool(x, y)
         if self.figure:
-            self.figure.set_scale(0.8)
+            self.figure.scale(0.8)
             self.update_flag = True
 
     def drag(self, delta_x, delta_y):
@@ -517,7 +504,7 @@ class DragAndDrop:
 
         put_result = self.field.put_figure(self.figure)
         if not put_result:
-            self.figure.set_scale(1)
+            self.figure.scale(1)
             self.pool.put_to_pool(self.figure)
 
         self.figure = None
