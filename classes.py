@@ -23,16 +23,21 @@ class Background:
 
 
 class Hexagon:
+    FAST_SCALE = 0.2
+    NORMAL_SCALE = 0.1
 
-    def __init__(self, x0, y0):
-        self.current_scale = self.target_scale = 1
-        self.step_scale = 0
+    def __init__(self, x0, y0, ):
         self.x0, self.y0 = x0, y0
+        self.current_scale = 1
         self.coords = create_hexagon_coords(x0, y0, self.current_scale)
+
+        self.target_scale = self.current_scale
+        self.step_scale = 0
 
     def draw(self, surface):
         color = getattr(self, 'color')
-        self._process()
+        if self.has_process():
+            self._process()
         pg.draw.polygon(surface, color, self.coords)
         pg.draw.lines(surface, self._get_border_color(), True, self.coords)
 
@@ -85,24 +90,18 @@ class FieldHexagon(Hexagon):
 
 
 class FigureHexagon(Hexagon):
+    STEP_MOTION = 100
 
     def __init__(self, x0, y0):
         Hexagon.__init__(self, x0, y0)
-        self.target_x0, self.target_y0 = x0, y0
-        self.step_motion = 0
+        self.target_x0, self.target_y0 = self.x0, self.y0
 
     def offset(self, delta_x, delta_y):
         self.x0, self.y0 = self.x0 + delta_x, self.y0 + delta_y
-        self.target_x0, self.target_y0 = self.x0, self.y0
-        self.coords = [(coord[0] + delta_x, coord[1] + delta_y) for coord in self.coords]
+        self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
 
-    def move_to(self, x, y):
-        self.x0, self.y0 = x, y
-        self.coords = create_hexagon_coords(x, y, self.current_scale)
-
-    def start_motion_process(self, target_x, target_y, step_motion):
+    def start_motion_process(self, target_x, target_y):
         self.target_x0, self.target_y0 = target_x, target_y
-        self.step_motion = step_motion
 
     def _process(self):
         Hexagon._process(self)
@@ -110,14 +109,15 @@ class FigureHexagon(Hexagon):
             return
 
         current_distance = get_distance(self.x0, self.y0, self.target_x0, self.target_y0)
-        delta_x = self.step_motion * ((self.target_x0 - self.x0) / current_distance)
-        delta_y = self.step_motion * ((self.target_y0 - self.y0) / current_distance)
+        delta_x = self.STEP_MOTION * ((self.target_x0 - self.x0) / current_distance)
+        delta_y = self.STEP_MOTION * ((self.target_y0 - self.y0) / current_distance)
         next_x0, next_y0 = self.x0 + delta_x, self.y0 + delta_y
         next_distance = get_distance(next_x0, next_y0, self.target_x0, self.target_y0)
-        if next_distance >= current_distance:
-            self.move_to(self.target_x0, self.target_y0)
+        if next_distance < current_distance:
+            self.offset(delta_x, delta_y)
         else:
-            self.move_to(next_x0, next_y0)
+            self.x0, self.y0 = self.target_x0, self.target_y0 = next_x0, next_y0
+            self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
 
     def has_process(self):
         return Hexagon.has_process(self) or ((self.x0, self.y0) != (self.target_x0, self.target_y0))
@@ -264,7 +264,7 @@ class Pool:
 
             # Добавляем анимацию появления
             figure.set_scale(0.1)
-            figure.start_scale_process(1, 0.2)
+            figure.start_scale_process(1, Hexagon.FAST_SCALE)
             self.animation.append(figure)
 
     def draw(self):
@@ -303,7 +303,7 @@ class Pool:
             slot['figure'] = figure
             next_coords = self._get_next_center_coords_figure_for_slot(figure, slot)
             for hexagon, (x, y) in zip(figure.hexagon_list, next_coords):
-                hexagon.start_motion_process(x, y, 100)
+                hexagon.start_motion_process(x, y)
             self.update_flag = True
 
     def get_current_figures_list(self):
