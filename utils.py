@@ -1,4 +1,4 @@
-from math import pi, cos, sin
+from math import pi, cos, sin, sqrt
 from settings import RADIUS, HEX_MARGIN, SMOOTH_FACTOR, SMOOTH_DEPTH
 
 
@@ -54,3 +54,7 @@ def normalize_value(value):
     elif value > 0:
         return 1
     return value
+
+
+def get_distance(x1, y1, x2, y2):
+    return sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
