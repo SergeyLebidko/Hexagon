@@ -111,6 +111,9 @@ class FigureHexagon(Hexagon):
 
         def process():
             current_distance = get_distance(self.x0, self.y0, target_x, target_y)
+            # Предотвращаем деление на ноль, если игрок возьмёт и сразу же отпустит фигурку
+            if current_distance == 0:
+                return True
             delta_x = self.STEP_MOTION * ((target_x - self.x0) / current_distance)
             delta_y = self.STEP_MOTION * ((target_y - self.y0) / current_distance)
             next_x0, next_y0 = self.x0 + delta_x, self.y0 + delta_y
