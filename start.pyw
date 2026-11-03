@@ -1,7 +1,89 @@
 #!/usr/bin/env python3
-from settings import pg, W, H, WINDOW_TITLE, FPS, GAME_MODE, FINAL_MODE
-from theme import theme
-from classes import Field, Pool, DragAndDrop, Background, Tab, Renderer, FxLayer
+"""Точка входа в игру.
+
+Проверка зависимостей выполняется до создания окна: без неё при запуске
+двойным кликом пользователь видит лишь чёрное окно, которое сразу закрывается
+(сообщение об ошибке уходит в несуществующий терминал).
+"""
+import os
+import sys
+import traceback
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def check_requirements():
+    """Возвращает текст ошибки или None, если всё в порядке."""
+    try:
+        import pygame
+    except ImportError:
+        return ('Не установлен pygame-ce.\n\n'
+                'Выполните в терминале:\n'
+                '    pip install -r requirements.txt')
+
+    missing = []
+    if not getattr(pygame, 'IS_CE', False):
+        missing.append('установлен обычный pygame (%s), а нужен pygame-ce' % pygame.version.ver)
+    if not hasattr(pygame.transform, 'box_blur'):
+        missing.append('не хватает pygame-ce >= 2.5 (нет transform.box_blur)')
+
+    if missing:
+        return ('Игра требует pygame-ce, а не обычный pygame.\n\n'
+                'Причина: %s\n\n'
+                'Исправление:\n'
+                '    pip uninstall -y pygame\n'
+                '    pip install -r requirements.txt' % '; '.join(missing))
+    return None
+
+
+def report_error(message, details=None):
+    """Показывает ошибку заметным способом: диалогом и записью в файл."""
+    text = message if details is None else '%s\n\n%s' % (message, details)
+
+    log_path = os.path.join(BASE_DIR, 'error.log')
+    try:
+        with open(log_path, 'w', encoding='utf-8') as log:
+            log.write(text)
+    except OSError:
+        log_path = None
+
+    try:
+        import tkinter
+        from tkinter import messagebox
+        root = tkinter.Tk()
+        root.withdraw()
+        messagebox.showerror('Hexagon', text)
+        root.destroy()
+    except Exception:
+        pass
+
+    sys.stderr.write(text + '\n')
+    if log_path:
+        sys.stderr.write('Подробности записаны в %s\n' % log_path)
+
+
+def main_entry():
+    problem = check_requirements()
+    if problem:
+        report_error(problem)
+        return 1
+
+    try:
+        from main import run
+    except Exception:
+        report_error('Не удалось запустить игру.', traceback.format_exc())
+        return 1
+
+    try:
+        run()
+    except Exception:
+        report_error('Игра завершилась с ошибкой.', traceback.format_exc())
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main_entry())
 
 
 def init_new_game(sc):
