@@ -1,9 +1,16 @@
 import random
 from copy import deepcopy
 from math import pi, sin, cos
-from settings import pg, W, H, LAYERS_COUNT, NORMAL, RADIUS, D_PARAMS, EMPTY_HEXAGON_COLOR, FIGURES_DATA, \
-    COLOR_PRESETS, TRANSPARENT_COLOR, BACKGROUND_COLORS_RANGE, BACKGROUND_STEP, FONT_COLOR, MARKED_HEXAGON_COLOR
+
+from settings import pg, W, H, LAYERS_COUNT, NORMAL, RADIUS, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
+from theme import theme
+from fonts import fonts
+from sprites import cache, make_panel, shade
 from utils import create_hexagon_coords, normalize_value, get_distance
+
+# Визуальные эффекты берут случайность из отдельного генератора, чтобы шум фона
+# и искры не сдвигали игровую последовательность фигур.
+visual_random = random.Random()
 
 
 def merge_rects(rects):
@@ -24,28 +31,30 @@ def merge_rects(rects):
     return merged
 
 
+def ease_out_cubic(t):
+    return 1 - (1 - t) ** 3
+
+
 class Layer:
     """Базовый слой отрисовки.
 
-    Каждый слой держит собственную полноэкранную поверхность с прозрачным
-    цветом-ключом. Поверхность перерисовывается и блитится не целиком, а
-    только внутри области, которая изменилась с прошлого кадра. Благодаря
-    этому статичный кадр не стоит вообще ничего, а во время анимации
-    перерисовывается лишь небольшая часть экрана.
+    Каждый слой держит собственную полноэкранную поверхность с настоящим
+    альфа-каналом (он нужен для мягких теней и свечения) и помнит только ту
+    область, которая изменилась с прошлого кадра. Благодаря этому статичный
+    кадр не стоит вообще ничего, а во время анимации перерисовывается лишь
+    небольшая часть экрана.
     """
 
     def __init__(self, sc):
         self.sc = sc
-        self.surface = pg.Surface((W, H)).convert()
-        self.surface.set_colorkey(TRANSPARENT_COLOR)
-        self.surface.fill(TRANSPARENT_COLOR)
+        self.surface = pg.Surface((W, H), pg.SRCALPHA).convert_alpha()
+        self.surface.fill((0, 0, 0, 0))
         self.dirty_rect = None
         self.update_flag = True
 
     @property
     def bounds(self):
-        """Область, которую слой может занимать. Используется при первичной
-        отрисовке, чтобы не перерисовывать весь экран без необходимости."""
+        """Область, которую слой может занимать."""
         return self.surface.get_rect()
 
     def invalidate(self, rect=None):
@@ -76,8 +85,17 @@ class Layer:
         rect = self.dirty_rect
         self.dirty_rect = None
         self.update_flag = False
-        self.redraw(rect)
+        # Обрезка критична: полупрозрачные элементы (тени, свечение) при
+        # повторной отрисовке вне области накапливали бы альфу.
+        self.surface.set_clip(rect)
+        try:
+            self.redraw(rect)
+        finally:
+            self.surface.set_clip(None)
         return rect
+
+    def invalidate_all(self):
+        self.invalidate(self.bounds)
 
 
 class Renderer:
@@ -114,42 +132,82 @@ class Renderer:
         pg.display.update(rects)
 
     def invalidate_all(self):
-        """Полная перерисовка: нужна, когда окно показалось из-под другого окна."""
+        """Полная перерисовка: нужна при смене темы и выходе окна из-под другого."""
         self.full_redraw_pending = True
         self.background.invalidate()
         for layer in self.layers:
-            layer.invalidate()
+            layer.invalidate_all()
 
 
 class Background(Layer):
-    """Статичный фон. Генерируется один раз и дальше только блитится."""
+    """Статичный фон: градиент, виньетка и мелкий шум."""
 
     STEP = BACKGROUND_STEP
 
     def __init__(self, sc):
         Layer.__init__(self, sc)
-        # Фон непрозрачный: цвет-ключ ему только мешает.
-        self.surface.set_colorkey(None)
-        self._generate()
+        self.surface = pg.Surface((W, H)).convert()
+        # Фон строится долго, поэтому готовые варианты держим по темам.
+        self._cache = {}
+        self.rebuild()
         self.update_flag = False
 
-    def _generate(self):
-        """Генерирует шум по ячейкам STEPxSTEP.
+    def rebuild(self):
+        """Переключает фон на активную тему, собирая её при первом обращении."""
+        name = theme.name
+        base = self._cache.get(name)
+        if base is None:
+            base = self._build_theme()
+            self._cache[name] = base
+        self.surface = base
 
-        Вместо десятков тысяч отдельных draw.rect рисуется маленькая картинка
-        размером с сетку ячеек, которая затем растягивается методом
-        ближайшего соседа: каждый пиксель превращается в ровный квадрат.
-        """
+    def _build_theme(self):
+        top = theme['background_top']
+        bottom = theme['background_bottom']
+
+        # Градиент считается на маленькой картинке и растягивается.
+        sw, sh = 64, 64
+        small = pg.Surface((sw, sh)).convert()
+        for y in range(sh):
+            for x in range(sw):
+                t = (x * 0.6 + y) / (sw * 0.6 + sh)
+                small.set_at((x, y), (
+                    int(top[0] + (bottom[0] - top[0]) * t),
+                    int(top[1] + (bottom[1] - top[1]) * t),
+                    int(top[2] + (bottom[2] - top[2]) * t),
+                ))
+        base = pg.transform.smoothscale(small, (W, H)).convert()
+
+        # Виньетка: края чуть темнее центра.
+        vw, vh = 90, 60
+        vig = pg.Surface((vw, vh)).convert()
+        vig_color = theme['vignette']
+        for y in range(vh):
+            for x in range(vw):
+                dx = (x - vw / 2) / (vw / 2)
+                dy = (y - vh / 2) / (vh / 2)
+                d = min(1.0, (dx * dx + dy * dy) ** 0.5)
+                amount = int(vig_color[0] * (d ** 2.4))
+                vig.set_at((x, y), (amount, amount, amount))
+        base.blit(pg.transform.smoothscale(vig, (W, H)), (0, 0), special_flags=pg.BLEND_RGB_SUB)
+
+        # Шум: убирает полосы и придаёт поверхности зернистость.
+        low, high = theme['background_noise']
         columns = (W + self.STEP - 1) // self.STEP
         rows = (H + self.STEP - 1) // self.STEP
-        low, high = BACKGROUND_COLORS_RANGE
         span = high - low + 1
+        raw = visual_random.randbytes(columns * rows)
+        # Один байт на ячейку вместо трёх: шум серый, каналы совпадают.
+        # Значения сразу индексируют палитру, поэтому заводим ровно span цветов.
+        data = bytes(byte % span for byte in raw)
+        grey = pg.image.frombuffer(data, (columns, rows), 'P')
+        grey.set_palette([(low + i, low + i, low + i) for i in range(span)] +
+                         [(0, 0, 0)] * (256 - span))
+        noise = pg.transform.scale(grey.convert(), (W, H))
+        flag = pg.BLEND_RGBA_MIN if theme['background_noise_mode'] == 'min' else pg.BLEND_RGBA_ADD
+        base.blit(noise, (0, 0), special_flags=flag)
 
-        raw = random.randbytes(columns * rows * 3)
-        data = bytes(low + (byte % span) for byte in raw)
-        small = pg.image.frombuffer(data, (columns, rows), 'RGB')
-
-        self.surface = pg.transform.scale(small, (W, H)).convert()
+        return base
 
     def redraw(self, rect):
         # Фон неизменен: перерисовывать нечего.
@@ -163,19 +221,20 @@ class Hexagon:
     def __init__(self, x0, y0, ):
         self.x0, self.y0 = x0, y0
         self.current_scale = 1
+        self.color_index = 0
         self.coords = create_hexagon_coords(x0, y0, self.current_scale)
         self.process_list = []
 
     @property
     def bbox(self):
-        """Габариты гекса с запасом под толщину линии обводки."""
+        """Габариты гекса с запасом под тень и толщину обводки."""
         xs = [x for x, _ in self.coords]
         ys = [y for _, y in self.coords]
         return pg.Rect(
             int(min(xs)), int(min(ys)),
             int(max(xs)) - int(min(xs)) + 1,
             int(max(ys)) - int(min(ys)) + 1
-        ).inflate(4, 4)
+        ).inflate(28, 28)
 
     def update(self):
         """Продвигает анимации гекса. Возвращает изменившуюся область или None."""
@@ -190,10 +249,18 @@ class Hexagon:
         self.process_list = next_process_list
         return before.union(self.bbox)
 
-    def draw(self, surface):
-        color = getattr(self, 'color')
-        pg.draw.polygon(surface, color, self.coords)
-        pg.draw.lines(surface, self._get_border_color(), True, self.coords)
+    def sprite(self):
+        raise NotImplementedError
+
+    def draw(self, surface, rect=None):
+        sprite = self.sprite()
+        offset_x = int(self.x0 - sprite.get_width() / 2)
+        offset_y = int(self.y0 - sprite.get_height() / 2)
+        if rect is not None:
+            area = pg.Rect(offset_x, offset_y, *sprite.get_size())
+            if not rect.colliderect(area):
+                return
+        surface.blit(sprite, (offset_x, offset_y))
 
     def collide(self, x, y):
         tmp_coords = self.coords + [self.coords[0]]
@@ -224,20 +291,15 @@ class Hexagon:
         def process():
             if self.current_scale < target_scale:
                 self.current_scale = min(target_scale, self.current_scale + step_scale)
-                self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
             elif self.current_scale > target_scale:
                 self.current_scale = max(target_scale, self.current_scale - step_scale)
-                self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
+            self.coords = create_hexagon_coords(self.x0, self.y0, self.current_scale)
             return self.current_scale == target_scale
 
         self.process_list.append(process)
 
     def has_process(self):
         return len(self.process_list) != 0
-
-    def _get_border_color(self):
-        color = getattr(self, 'color')
-        return max(10, color[0] - 50), max(10, color[1] - 50), max(10, color[2] - 50)
 
 
 class FieldHexagon(Hexagon):
@@ -246,7 +308,10 @@ class FieldHexagon(Hexagon):
         Hexagon.__init__(self, x0, y0)
         self.x_axis, self.y_axis, self.z_axis = x_axis, y_axis, z_axis
         self.content = False
-        self.color = EMPTY_HEXAGON_COLOR
+        self.state = 'empty'
+
+    def sprite(self):
+        return cache.hex_sprite(self.state, self.color_index, self.current_scale, theme)
 
 
 class FigureHexagon(Hexagon):
@@ -255,6 +320,9 @@ class FigureHexagon(Hexagon):
     def __init__(self, x0, y0):
         Hexagon.__init__(self, x0, y0)
         self.target_x0, self.target_y0 = self.x0, self.y0
+
+    def sprite(self):
+        return cache.hex_sprite('figure', self.color_index, self.current_scale, theme)
 
     def offset(self, delta_x, delta_y):
         before = self.bbox
@@ -287,9 +355,9 @@ class FigureHexagon(Hexagon):
 class Figure:
 
     def __init__(self, hexagon_list, data_for_create):
-        self._color = None
         self.hexagon_list = hexagon_list
         self.data_for_create = data_for_create
+        self.color_index = 0
         self.width = self.max_x - self.min_x
         self.height = self.max_y - self.min_y
 
@@ -317,26 +385,23 @@ class Figure:
         return rect
 
     @property
-    def color(self):
-        return self._color
+    def color_index(self):
+        return self._color_index
 
-    @color.setter
-    def color(self, color):
-        self._color = color
+    @color_index.setter
+    def color_index(self, index):
+        self._color_index = index
         for hexagon in self.hexagon_list:
-            hexagon.color = color
+            hexagon.color_index = index
 
     def collide(self, x, y):
         return any(hexagon.collide(x, y) for hexagon in self.hexagon_list)
 
     def draw(self, surface, rect=None):
-        """Рисует фигуру, при необходимости пропуская гексы вне rect."""
         for hexagon in self.hexagon_list:
-            if rect is None or rect.colliderect(hexagon.bbox):
-                hexagon.draw(surface)
+            hexagon.draw(surface, rect)
 
     def update(self):
-        """Продвигает анимации всех гексов фигуры. Возвращает изменившуюся область."""
         changed = None
         for hexagon in self.hexagon_list:
             rect = hexagon.update()
@@ -353,7 +418,6 @@ class Figure:
         return changed
 
     def scale(self, factor):
-        """Масштабирует фигуру. Возвращает область, которая была затронута."""
         changed = None
         for hexagon in self.hexagon_list:
             rect = hexagon.scale(factor)
@@ -377,6 +441,8 @@ class Figure:
 
 class Pool(Layer):
     BORDER = 10
+    CARD_PADDING = 12
+    CARD_RADIUS = 18
 
     def __init__(self, sc):
         Layer.__init__(self, sc)
@@ -407,22 +473,37 @@ class Pool(Layer):
         self.slots = []
         for index in range(3):
             self.slots.append({
-                'x': W - self.BORDER - self.slot_width,
-                'y': (H - self.slot_height * 3 - self.BORDER * 2) // 2 + index * (self.slot_height + self.BORDER),
+                'x': W - self.BORDER - self.slot_width - self.CARD_PADDING - 14,
+                'y': (H - self.slot_height * 3 - self.BORDER * 2) // 2
+                     + index * (self.slot_height + self.BORDER),
                 'figure': None
             })
 
-        # Заполняем слоты
+        self._panel = None
         self.refresh_slots()
+        self.invalidate(self.bounds)
+
+    @property
+    def panel_rect(self):
+        top = min(slot['y'] for slot in self.slots) - self.CARD_PADDING
+        bottom = max(slot['y'] for slot in self.slots) + self.slot_height + self.CARD_PADDING
+        left = min(slot['x'] for slot in self.slots) - self.CARD_PADDING
+        right = W - 4
+        return pg.Rect(int(left), int(top) + 4, int(right - left), int(bottom - top))
 
     @property
     def bounds(self):
-        rect = pg.Rect(int(self.slots[0]['x']), int(self.slots[0]['y']),
-                       int(self.slot_width) + self.BORDER, int(self.slot_height) + self.BORDER)
-        for slot in self.slots[1:]:
-            rect = rect.union(pg.Rect(int(slot['x']), int(slot['y']),
-                                      int(self.slot_width) + self.BORDER, int(self.slot_height) + self.BORDER))
-        return rect
+        return self.panel_rect.inflate(60, 60)
+
+    def _get_panel(self):
+        rect = self.panel_rect
+        key = (rect.size, theme.name)
+        if self._panel is None or self._panel[0] != key:
+            card, shadow, margin = make_panel(
+                rect.size, self.CARD_RADIUS,
+                theme['panel_fill'], theme['panel_border'], 70)
+            self._panel = (key, card, shadow, margin)
+        return self._panel
 
     def refresh_slots(self):
         """Метод проверяет слоты и если находит пустой - добавляет в него фигуру из списка заранее созданных"""
@@ -430,7 +511,8 @@ class Pool(Layer):
             if slot['figure']:
                 continue
             figure = deepcopy(random.choice(self.figures_pool))
-            figure.color = random.choice(COLOR_PRESETS)
+            # Цвет — только оформление, поэтому он не должен расходовать игровой random.
+            figure.color_index = visual_random.randrange(9)
             anchor_x, anchor_y = self._get_slot_anchor_point(slot, figure)
             figure.offset(anchor_x - figure.min_x, anchor_y - figure.min_y)
             slot['figure'] = figure
@@ -482,12 +564,17 @@ class Pool(Layer):
             self.invalidate(changed)
 
     def redraw(self, rect):
-        self.surface.fill(TRANSPARENT_COLOR, rect)
+        self.surface.fill((0, 0, 0, 0), rect)
+
+        panel = self.panel_rect
+        _, card, shadow, margin = self._get_panel()
+        if rect.colliderect(panel):
+            self.surface.blit(shadow, (panel.x - margin, panel.y - margin))
+            self.surface.blit(card, panel.topleft)
+
         for slot in self.slots:
             figure = slot['figure']
             if not figure:
-                continue
-            if not rect.colliderect(figure.bbox):
                 continue
             figure.draw(self.surface, rect)
 
@@ -496,6 +583,7 @@ class Pool(Layer):
 
 
 class Field(Layer):
+    MARKED_RADIUS = 1.02 * RADIUS
 
     def __init__(self, sc):
         Layer.__init__(self, sc)
@@ -553,6 +641,7 @@ class Field(Layer):
 
         # Данные для воспроизведения анимации
         self.animation = []
+        self._shadow = None
 
         self.invalidate(self.bounds)
 
@@ -562,6 +651,24 @@ class Field(Layer):
         for hexagon in self.hexagon_list[1:]:
             rect = rect.union(hexagon.bbox)
         return rect
+
+    def _get_shadow(self):
+        """Мягкая тень под всей доской, чтобы поле «парило» над фоном."""
+        key = (len(self.hexagon_list), theme.name)
+        if self._shadow is not None and self._shadow[0] == key:
+            return self._shadow[1], self._shadow[2]
+
+        rect = self.bounds.inflate(60, 60)
+        shadow = pg.Surface(rect.size, pg.SRCALPHA)
+        color = theme['board_shadow']
+        for hexagon in self.hexagon_list:
+            pg.draw.circle(
+                shadow, color,
+                (int(hexagon.x0 - rect.x), int(hexagon.y0 - rect.y + 10)),
+                int(RADIUS * 1.02))
+        shadow = pg.transform.box_blur(shadow, 14)
+        self._shadow = (key, shadow, rect)
+        return shadow, rect
 
     def update(self):
         changed = None
@@ -581,29 +688,30 @@ class Field(Layer):
             self.invalidate(changed)
 
     def redraw(self, rect):
-        self.surface.fill(TRANSPARENT_COLOR, rect)
+        self.surface.fill((0, 0, 0, 0), rect)
+
+        shadow, shadow_rect = self._get_shadow()
+        if rect.colliderect(shadow_rect):
+            self.surface.blit(shadow, shadow_rect.topleft)
+
         for hexagon in self.hexagon_list:
-            if rect.colliderect(hexagon.bbox):
-                hexagon.draw(self.surface)
+            hexagon.draw(self.surface, rect)
 
         # Если нужно - отрисовываем кадр анимации
         for hexagon in self.animation:
-            if rect.colliderect(hexagon.bbox):
-                hexagon.draw(self.surface)
+            hexagon.draw(self.surface, rect)
 
     def mark_hexagons_under_figure(self, figure):
         """Метод перебирает гексы и помечает все свободные, расположенные под переданной фигурой"""
         free_hexagons_under_figure = self._get_free_hexagons_under_figure(figure)
         changed = None
         for hexagon in self.hexagon_list:
-            if not hexagon.content:
-                color_before = hexagon.color
-                if hexagon in free_hexagons_under_figure:
-                    hexagon.color = MARKED_HEXAGON_COLOR
-                else:
-                    hexagon.color = EMPTY_HEXAGON_COLOR
-                if hexagon.color != color_before:
-                    changed = hexagon.bbox if changed is None else changed.union(hexagon.bbox)
+            if hexagon.content:
+                continue
+            state = 'marked' if hexagon in free_hexagons_under_figure else 'empty'
+            if hexagon.state != state:
+                hexagon.state = state
+                changed = hexagon.bbox if changed is None else changed.union(hexagon.bbox)
 
         if changed is not None:
             self.invalidate(changed)
@@ -619,7 +727,7 @@ class Field(Layer):
             if free_hexagons_under_figure:
                 changed = None
                 for hexagon in free_hexagons_under_figure:
-                    hexagon.color = EMPTY_HEXAGON_COLOR
+                    hexagon.state = 'empty'
                     changed = hexagon.bbox if changed is None else changed.union(hexagon.bbox)
                 self.invalidate(changed)
             return False
@@ -628,7 +736,8 @@ class Field(Layer):
         changed = None
         for field_hexagon in free_hexagons_under_figure:
             field_hexagon.content = True
-            field_hexagon.color = figure.color
+            field_hexagon.state = 'figure'
+            field_hexagon.color_index = figure.color_index
             changed = field_hexagon.bbox if changed is None else changed.union(field_hexagon.bbox)
         self.invalidate(changed)
         return True
@@ -655,7 +764,7 @@ class Field(Layer):
         changed = None
         for hexagon in list_for_clear:
             hexagon.content = False
-            hexagon.color = EMPTY_HEXAGON_COLOR
+            hexagon.state = 'empty'
             changed = hexagon.bbox if changed is None else changed.union(hexagon.bbox)
         self.invalidate(changed)
 
@@ -734,7 +843,7 @@ class DragAndDrop(Layer):
 
     def drop(self):
         if not self.figure:
-            return
+            return False
 
         put_result = self.field.put_figure(self.figure)
         if not put_result:
@@ -753,9 +862,127 @@ class DragAndDrop(Layer):
                 self.invalidate(rect)
 
     def redraw(self, rect):
-        self.surface.fill(TRANSPARENT_COLOR, rect)
+        self.surface.fill((0, 0, 0, 0), rect)
         if self.figure:
             self.figure.draw(self.surface, rect)
+
+
+class FxLayer(Layer):
+    """Слой эффектов: частицы и всплывающие очки."""
+
+    def __init__(self, sc):
+        Layer.__init__(self, sc)
+        self.particles = []
+        self.labels = []
+
+    def burst(self, x, y, color_index, count=24):
+        for _ in range(count):
+            self.particles.append(Particle(x, y, color_index))
+
+    def popup(self, x, y, text):
+        self.labels.append(FloatingLabel(x, y, text))
+
+    def clear(self):
+        self.particles = []
+        self.labels = []
+
+    def update(self):
+        if not self.particles and not self.labels:
+            return
+
+        changed = None
+        survivors = []
+        for particle in self.particles:
+            old = particle.bbox
+            if particle.step():
+                survivors.append(particle)
+                changed = old.union(particle.bbox) if changed is None else changed.union(old.union(particle.bbox))
+            else:
+                changed = old if changed is None else changed.union(old)
+        self.particles = survivors
+
+        survivors = []
+        for label in self.labels:
+            old = label.bbox
+            if label.step():
+                survivors.append(label)
+                changed = old.union(label.bbox) if changed is None else changed.union(old.union(label.bbox))
+            else:
+                changed = old if changed is None else changed.union(old)
+        self.labels = survivors
+
+        if changed is not None:
+            self.invalidate(changed)
+
+    def redraw(self, rect):
+        self.surface.fill((0, 0, 0, 0), rect)
+        for particle in self.particles:
+            particle.draw(self.surface, rect)
+        for label in self.labels:
+            label.draw(self.surface, rect)
+
+
+class Particle:
+    LIFETIME = 45
+
+    def __init__(self, x, y, color_index):
+        self.x, self.y = x, y
+        angle = visual_random.uniform(0, 2 * pi)
+        speed = visual_random.uniform(1.2, 4.2)
+        self.vx = speed * cos(angle)
+        self.vy = speed * sin(angle) - 1.0
+        self.life = self.LIFETIME
+        self.size = visual_random.randint(2, 4)
+        self.color_index = color_index
+
+    @property
+    def bbox(self):
+        pad = self.size + 2
+        return pg.Rect(int(self.x - pad), int(self.y - pad), pad * 2, pad * 2)
+
+    def step(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += 0.16
+        self.vx *= 0.99
+        self.life -= 1
+        return self.life > 0
+
+    def draw(self, surface, rect):
+        if not rect.colliderect(self.bbox):
+            return
+        ratio = self.life / self.LIFETIME
+        base = theme.palette_color(self.color_index)
+        color = shade(base, 0.45 + 0.55 * ratio)
+        pg.draw.circle(surface, color, (int(self.x), int(self.y)), self.size)
+
+
+class FloatingLabel:
+    LIFETIME = 50
+
+    def __init__(self, x, y, text):
+        self.x, self.y = x, y
+        self.text = text
+        self.life = self.LIFETIME
+
+    @property
+    def bbox(self):
+        return pg.Rect(int(self.x - 60), int(self.y - 34), 120, 68)
+
+    def step(self):
+        self.y -= 0.9
+        self.life -= 1
+        return self.life > 0
+
+    def draw(self, surface, rect):
+        if not rect.colliderect(self.bbox):
+            return
+        ratio = max(0.0, self.life / self.LIFETIME)
+        font = fonts.medium(30)
+        color = shade(theme['text_primary'], 0.55 + 0.45 * ratio)
+        text = font.render(self.text, True, color)
+        text.set_alpha(int(255 * min(1.0, ratio * 1.6)))
+        surface.blit(text, text.get_rect(center=(int(self.x), int(self.y))))
 
 
 class Tab(Layer):
@@ -763,39 +990,72 @@ class Tab(Layer):
 
     def __init__(self, sc):
         Layer.__init__(self, sc)
-        self.font = pg.font.Font(None, 48)
         self.score = 0
         self.target_score = 0
-        self.msg_template = '{SCORE}'
-        self.text_surface = None
-        self.text_rect = pg.Rect(0, 0, 0, 0)
-        self._render_text()
+        self.final = False
+        self._rendered = {}
+
+        self.label = fonts.regular(19)
+        self.big = fonts.bold(64)
+        self.info = fonts.medium(22)
+
+        self.invalidate(self.bounds)
 
     def update_score(self, hexagon_count, line_count):
         self.target_score = self.score + hexagon_count + ((10 + 10 * line_count) / 2) * line_count
 
     def set_final_text(self):
-        self.msg_template = 'Game Over. Your score: {SCORE}. Press any key to new game...'
-        self._render_text()
+        self.final = True
+        self.invalidate(self.bounds)
 
     def update(self):
         if self.score < self.target_score:
             self.score += 1
-            self._render_text()
-
-    def _render_text(self):
-        old_rect = self.text_rect
-        self.text_surface = self.font.render(self.msg_template.format(SCORE=self.score), True, FONT_COLOR)
-        self.text_rect = self.text_surface.get_rect()
-        self.text_rect.centerx = W // 2
-        self.text_rect.y = self.BORDER
-        # Ширина строки меняется вместе со счётом, поэтому стираем и старую область.
-        self.invalidate(old_rect.union(self.text_rect))
+            self.invalidate(self.bounds)
 
     @property
     def bounds(self):
-        return self.text_rect
+        if self.final:
+            return pg.Rect(W // 2 - 420, 10, 840, 180)
+        return pg.Rect(W // 2 - 200, 10, 400, 110)
+
+    def _text(self, text, font, color):
+        """Рендер с кэшем: шрифт перерисовывается только при смене значений."""
+        key = (text, id(font), color)
+        cached = self._rendered.get(key)
+        if cached is None:
+            cached = font.render(text, True, color)
+            self._rendered[key] = cached
+        return cached
 
     def redraw(self, rect):
-        self.surface.fill(TRANSPARENT_COLOR, rect)
-        self.surface.blit(self.text_surface, self.text_rect)
+        self.surface.fill((0, 0, 0, 0), rect)
+        bounds = self.bounds
+        if not rect.colliderect(bounds):
+            return
+
+        center_x = bounds.centerx
+
+        if self.final:
+            title = self._text('ИГРА ОКОНЧЕНА', self.info, theme['text_final'])
+            self.surface.blit(title, title.get_rect(center=(center_x, 52)))
+
+            score = self._text(str(self.score), self.big, theme['text_primary'])
+            shadow = self._text(str(self.score), self.big, theme['text_shadow'])
+            rect_score = score.get_rect(center=(center_x, 104))
+            self.surface.blit(shadow, rect_score.move(0, 3))
+            self.surface.blit(score, rect_score)
+
+            hint = self._text('нажмите любую клавишу', self.label, theme['text_secondary'])
+            self.surface.blit(hint, hint.get_rect(center=(center_x, 148)))
+            return
+
+        label = self._text('С Ч Ё Т', self.label, theme['text_secondary'])
+        self.surface.blit(label, label.get_rect(center=(center_x, 30)))
+
+        text = '{:,}'.format(self.score).replace(',', ' ')
+        score = self._text(text, self.big, theme['text_primary'])
+        shadow = self._text(text, self.big, theme['text_shadow'])
+        rect_score = score.get_rect(center=(center_x, 74))
+        self.surface.blit(shadow, rect_score.move(0, 3))
+        self.surface.blit(score, rect_score)
