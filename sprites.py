@@ -114,20 +114,6 @@ def _trim(surface):
     return trimmed.convert_alpha()
 
 
-def make_panel(size, radius, fill, border, shadow_alpha):
-    """Карточка со скруглёнными углами и мягкой тенью."""
-    card = pg.Surface(size, pg.SRCALPHA)
-    pg.draw.rect(card, fill, card.get_rect(), border_radius=radius)
-    pg.draw.rect(card, border, card.get_rect(), width=1, border_radius=radius)
-
-    margin = 20
-    shadow = pg.Surface((size[0] + margin * 2, size[1] + margin * 2), pg.SRCALPHA)
-    pg.draw.rect(shadow, (*border[:3], shadow_alpha),
-                 (margin, margin + 4, size[0], size[1]), border_radius=radius)
-    shadow = pg.transform.box_blur(shadow, 9)
-    return card, shadow, margin
-
-
 class SpriteCache:
     """Кэширует спрайты по (состояние, индекс цвета, шаг масштаба).
 

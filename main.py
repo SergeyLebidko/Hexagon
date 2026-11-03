@@ -38,7 +38,6 @@ def run():
         """
         theme.toggle()
         background.rebuild()
-        pool._panel = None
         field._shadow = None
         tab._rendered = {}
         renderer.invalidate_all()

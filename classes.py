@@ -5,7 +5,7 @@ from math import pi, sin, cos
 from settings import pg, W, H, LAYERS_COUNT, NORMAL, RADIUS, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
 from theme import theme
 from fonts import fonts
-from sprites import cache, make_panel, shade
+from sprites import cache, shade
 from utils import create_hexagon_coords, normalize_value, get_distance
 
 # Визуальные эффекты берут случайность из отдельного генератора, чтобы шум фона
@@ -441,8 +441,6 @@ class Figure:
 
 class Pool(Layer):
     BORDER = 10
-    CARD_PADDING = 12
-    CARD_RADIUS = 18
 
     def __init__(self, sc):
         Layer.__init__(self, sc)
@@ -473,37 +471,23 @@ class Pool(Layer):
         self.slots = []
         for index in range(3):
             self.slots.append({
-                'x': W - self.BORDER - self.slot_width - self.CARD_PADDING - 14,
+                'x': W - self.BORDER - self.slot_width - 14,
                 'y': (H - self.slot_height * 3 - self.BORDER * 2) // 2
                      + index * (self.slot_height + self.BORDER),
                 'figure': None
             })
 
-        self._panel = None
         self.refresh_slots()
         self.invalidate(self.bounds)
 
     @property
-    def panel_rect(self):
-        top = min(slot['y'] for slot in self.slots) - self.CARD_PADDING
-        bottom = max(slot['y'] for slot in self.slots) + self.slot_height + self.CARD_PADDING
-        left = min(slot['x'] for slot in self.slots) - self.CARD_PADDING
-        right = W - 4
-        return pg.Rect(int(left), int(top) + 4, int(right - left), int(bottom - top))
-
-    @property
     def bounds(self):
-        return self.panel_rect.inflate(60, 60)
-
-    def _get_panel(self):
-        rect = self.panel_rect
-        key = (rect.size, theme.name)
-        if self._panel is None or self._panel[0] != key:
-            card, shadow, margin = make_panel(
-                rect.size, self.CARD_RADIUS,
-                theme['panel_fill'], theme['panel_border'], 70)
-            self._panel = (key, card, shadow, margin)
-        return self._panel
+        rect = pg.Rect(int(self.slots[0]['x']), int(self.slots[0]['y']),
+                       int(self.slot_width), int(self.slot_height))
+        for slot in self.slots[1:]:
+            rect = rect.union(pg.Rect(int(slot['x']), int(slot['y']),
+                                      int(self.slot_width), int(self.slot_height)))
+        return rect.inflate(40, 40)
 
     def refresh_slots(self):
         """Метод проверяет слоты и если находит пустой - добавляет в него фигуру из списка заранее созданных"""
@@ -565,12 +549,6 @@ class Pool(Layer):
 
     def redraw(self, rect):
         self.surface.fill((0, 0, 0, 0), rect)
-
-        panel = self.panel_rect
-        _, card, shadow, margin = self._get_panel()
-        if rect.colliderect(panel):
-            self.surface.blit(shadow, (panel.x - margin, panel.y - margin))
-            self.surface.blit(card, panel.topleft)
 
         for slot in self.slots:
             figure = slot['figure']
