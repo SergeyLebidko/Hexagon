@@ -44,6 +44,12 @@ LIGHT = {
 
     # Тень гекса
     'sprite_shadow': 70,
+
+    # Финальный экран
+    'overlay': (28, 34, 52, 90),
+    'card_fill': (252, 253, 255, 252),
+    'card_border': (214, 220, 234, 255),
+    'card_shadow': (24, 32, 56, 80),
 }
 
 DARK = {
@@ -80,6 +86,12 @@ DARK = {
     'text_final': (255, 130, 140),
 
     'sprite_shadow': 110,
+
+    # Финальный экран
+    'overlay': (0, 0, 0, 120),
+    'card_fill': (44, 50, 68, 252),
+    'card_border': (78, 88, 112, 255),
+    'card_shadow': (0, 0, 0, 130),
 }
 
 THEMES = {'light': LIGHT, 'dark': DARK}

@@ -1055,6 +1055,7 @@ class Tab(Layer):
         self.label = fonts.regular(19)
         self.big = fonts.bold(64)
         self.info = fonts.medium(22)
+        self.hint = fonts.regular(20)
 
         self.invalidate(self.bounds)
 
@@ -1063,7 +1064,7 @@ class Tab(Layer):
 
     def set_final_text(self):
         self.final = True
-        self.invalidate(self.bounds)
+        self.invalidate_all()
 
     def update(self):
         if self.score < self.target_score:
@@ -1071,9 +1072,17 @@ class Tab(Layer):
             self.invalidate(self.bounds)
 
     @property
+    def card_rect(self):
+        """Карточка финального экрана. Она лежит по центру, поэтому текст
+        не может оказаться поверх гексов игрового поля."""
+        width, height = 560, 300
+        return pg.Rect((W - width) // 2, (H - height) // 2, width, height)
+
+    @property
     def bounds(self):
         if self.final:
-            return pg.Rect(W // 2 - 420, 10, 840, 180)
+            # Затемнение накрывает всё окно: под ним видно поле.
+            return self.surface.get_rect()
         return pg.Rect(W // 2 - 200, 10, 400, 110)
 
     def _text(self, text, font, color):
@@ -1085,28 +1094,42 @@ class Tab(Layer):
             self._rendered[key] = cached
         return cached
 
+    def _card_surface(self):
+        """Карточка со скруглением и мягкой тенью, собирается один раз."""
+        key = ('card', theme.name)
+        cached = self._rendered.get(key)
+        if cached is not None:
+            return cached
+
+        rect = self.card_rect
+        margin = 28
+        surface = pg.Surface((rect.width + margin * 2, rect.height + margin * 2), pg.SRCALPHA)
+
+        shadow = pg.Surface((rect.width, rect.height), pg.SRCALPHA)
+        pg.draw.rect(shadow, theme['card_shadow'], shadow.get_rect(), border_radius=22)
+        shadow = pg.transform.box_blur(shadow, 14)
+        surface.blit(shadow, (margin, margin + 6))
+
+        card = pg.Surface((rect.width, rect.height), pg.SRCALPHA)
+        pg.draw.rect(card, theme['card_fill'], card.get_rect(), border_radius=22)
+        pg.draw.rect(card, theme['card_border'], card.get_rect(), width=1, border_radius=22)
+        surface.blit(card, (margin, margin))
+
+        result = (surface, margin)
+        self._rendered[key] = result
+        return result
+
     def redraw(self, rect):
         self.surface.fill((0, 0, 0, 0), rect)
         bounds = self.bounds
         if not rect.colliderect(bounds):
             return
 
-        center_x = bounds.centerx
-
         if self.final:
-            title = self._text('ИГРА ОКОНЧЕНА', self.info, theme['text_final'])
-            self.surface.blit(title, title.get_rect(center=(center_x, 52)))
-
-            score = self._text(str(self.score), self.big, theme['text_primary'])
-            shadow = self._text(str(self.score), self.big, theme['text_shadow'])
-            rect_score = score.get_rect(center=(center_x, 104))
-            self.surface.blit(shadow, rect_score.move(0, 3))
-            self.surface.blit(score, rect_score)
-
-            hint = self._text('нажмите любую клавишу', self.label, theme['text_secondary'])
-            self.surface.blit(hint, hint.get_rect(center=(center_x, 148)))
+            self._redraw_final(rect)
             return
 
+        center_x = bounds.centerx
         label = self._text('С Ч Ё Т', self.label, theme['text_secondary'])
         self.surface.blit(label, label.get_rect(center=(center_x, 30)))
 
@@ -1116,3 +1139,29 @@ class Tab(Layer):
         rect_score = score.get_rect(center=(center_x, 74))
         self.surface.blit(shadow, rect_score.move(0, 3))
         self.surface.blit(score, rect_score)
+
+    def _redraw_final(self, rect):
+        # Затемняем поле: текст должен читаться, а не спорить с гексами.
+        self.surface.fill(theme['overlay'], rect)
+
+        card = self.card_rect
+        surface, margin = self._card_surface()
+        origin = (card.x - margin, card.y - margin)
+        self.surface.blit(surface, origin)
+
+        center_x = card.centerx
+        title = self._text('ИГРА ОКОНЧЕНА', self.info, theme['text_final'])
+        self.surface.blit(title, title.get_rect(center=(center_x, card.y + 58)))
+
+        text = '{:,}'.format(self.score).replace(',', ' ')
+        score = self._text(text, self.big, theme['text_primary'])
+        shadow = self._text(text, self.big, theme['text_shadow'])
+        rect_score = score.get_rect(center=(center_x, card.y + 136))
+        self.surface.blit(shadow, rect_score.move(0, 3))
+        self.surface.blit(score, rect_score)
+
+        label = self._text('С Ч Ё Т', self.label, theme['text_secondary'])
+        self.surface.blit(label, label.get_rect(center=(center_x, card.y + 186)))
+
+        hint = self._text('нажмите любую клавишу', self.hint, theme['text_secondary'])
+        self.surface.blit(hint, hint.get_rect(center=(center_x, card.bottom - 46)))
