@@ -32,7 +32,7 @@ def _int_points(cx, cy, scale=1.0):
     return [(int(x), int(y)) for x, y in _hex_points(cx, cy, scale)]
 
 
-def _gradient_body(size, fill):
+def _gradient_body(size, fill, scale=1.0):
     """Вертикальный градиент, обрезанный по форме гекса."""
     body = pg.Surface((size, size), pg.SRCALPHA)
     top, bottom = shade(fill, 1.16), shade(fill, 0.84)
@@ -46,7 +46,7 @@ def _gradient_body(size, fill):
         pg.draw.line(body, color, (0, y), (size, y))
 
     mask = pg.Surface((size, size), pg.SRCALPHA)
-    gfxdraw.filled_polygon(mask, _int_points(size / 2, size / 2), (255, 255, 255, 255))
+    gfxdraw.filled_polygon(mask, _int_points(size / 2, size / 2, scale), (255, 255, 255, 255))
     body.blit(mask, (0, 0), special_flags=pg.BLEND_RGBA_MIN)
     return body
 
@@ -79,13 +79,11 @@ def make_hex_sprite(fill, border, scale=1.0, pad=26, shadow_alpha=0, glow=None,
         halo.set_alpha(150)
         layer.blit(halo, (0, 0))
 
-    layer.blit(_gradient_body(size, fill), (0, 0))
+    layer.blit(_gradient_body(size, fill, scale), (0, 0))
 
-    if inner_light:
-        inner = pg.Surface((size, size), pg.SRCALPHA)
-        gfxdraw.aapolygon(inner, _int_points(cx, cy, scale * 0.955), (*shade(fill, 1.42), 190))
-        layer.blit(inner, (0, 0))
-
+    # Раньше здесь рисовалась светлая кромка по внутреннему контуру, но при
+    # уменьшении масштаба (взятие фигуры) она превращалась в заметную линию
+    # внутри гекса. Объём создаёт сам градиент, поэтому кромка убрана.
     gfxdraw.aapolygon(layer, points, (*border, 210))
     return _trim(layer)
 

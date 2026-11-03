@@ -2,7 +2,7 @@ import random
 from copy import deepcopy
 from math import pi, sin, cos
 
-from settings import pg, W, H, LAYERS_COUNT, NORMAL, RADIUS, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
+from settings import pg, W, H, LAYERS_COUNT, NORMAL, RADIUS, HEX_MARGIN, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
 from theme import theme
 from fonts import fonts
 from sprites import cache, shade
@@ -358,8 +358,16 @@ class Figure:
         self.hexagon_list = hexagon_list
         self.data_for_create = data_for_create
         self.color_index = 0
-        self.width = self.max_x - self.min_x
-        self.height = self.max_y - self.min_y
+        self.render_scale = 1.0
+        self.process_list = []
+
+    @property
+    def width(self):
+        return self.max_x - self.min_x
+
+    @property
+    def height(self):
+        return self.max_y - self.min_y
 
     @property
     def min_x(self):
@@ -379,9 +387,19 @@ class Figure:
 
     @property
     def bbox(self):
-        rect = self.hexagon_list[0].bbox
-        for hexagon in self.hexagon_list[1:]:
-            rect = rect.union(hexagon.bbox)
+        """Габариты фигуры с учётом визуального масштаба."""
+        if self.render_scale == 1.0:
+            rect = self.hexagon_list[0].bbox
+            for hexagon in self.hexagon_list[1:]:
+                rect = rect.union(hexagon.bbox)
+            return rect
+
+        radius = int((RADIUS + 18) * self.render_scale) + 4
+        rect = None
+        for hexagon in self.hexagon_list:
+            hx, hy = self._scaled_center(hexagon)
+            item = pg.Rect(int(hx) - radius, int(hy) - radius, radius * 2, radius * 2)
+            rect = item if rect is None else rect.union(item)
         return rect
 
     @property
@@ -395,14 +413,38 @@ class Figure:
             hexagon.color_index = index
 
     def collide(self, x, y):
-        return any(hexagon.collide(x, y) for hexagon in self.hexagon_list)
+        if self.render_scale == 1.0:
+            return any(hexagon.collide(x, y) for hexagon in self.hexagon_list)
+        # При уменьшенной фигуре попадание считается по экранным позициям.
+        cx, cy = self.center
+        for hexagon in self.hexagon_list:
+            hx, hy = self._scaled_center(hexagon)
+            radius = (RADIUS - HEX_MARGIN) * self.render_scale
+            if (x - hx) ** 2 + (y - hy) ** 2 <= radius * radius:
+                return True
+        return False
 
     def draw(self, surface, rect=None):
         for hexagon in self.hexagon_list:
-            hexagon.draw(surface, rect)
+            if self.render_scale == 1.0:
+                hexagon.draw(surface, rect)
+                continue
+            hx, hy = self._scaled_center(hexagon)
+            sprite = cache.hex_sprite('figure', self.color_index, self.render_scale, theme)
+            offset = (int(hx - sprite.get_width() / 2), int(hy - sprite.get_height() / 2))
+            area = pg.Rect(offset, sprite.get_size())
+            if rect is not None and not rect.colliderect(area):
+                continue
+            surface.blit(sprite, offset)
 
     def update(self):
         changed = None
+        for process in list(self.process_list):
+            rect = self.bbox
+            if process():
+                self.process_list.remove(process)
+            changed = rect.union(self.bbox) if changed is None else changed.union(rect).union(self.bbox)
+
         for hexagon in self.hexagon_list:
             rect = hexagon.update()
             if rect is not None:
@@ -417,23 +459,50 @@ class Figure:
             changed = rect if changed is None else changed.union(rect)
         return changed
 
+    @property
+    def center(self):
+        """Геометрический центр фигуры."""
+        return ((self.min_x + self.max_x) / 2, (self.min_y + self.max_y) / 2)
+
+    def _scaled_center(self, hexagon):
+        """Центр гекса в экранных координатах с учётом визуального масштаба.
+
+        Логические координаты гексов не меняются: они должны оставаться на
+        сетке, иначе фигура перестанет совпадать с ячейками поля. Поэтому
+        при уменьшении фигуры её гексы стягиваются к центру только на экране.
+        """
+        cx, cy = self.center
+        s = self.render_scale
+        return cx + (hexagon.x0 - cx) * s, cy + (hexagon.y0 - cy) * s
+
     def scale(self, factor):
-        changed = None
-        for hexagon in self.hexagon_list:
-            rect = hexagon.scale(factor)
-            changed = rect if changed is None else changed.union(rect)
-        return changed
+        """Задаёт визуальный масштаб всей фигуры."""
+        changed = self.bbox
+        self.render_scale = factor
+        return changed.union(self.bbox)
 
     def start_scale_process(self, target_scale, step_scale):
-        for hexagon in self.hexagon_list:
-            hexagon.start_scale_process(target_scale, step_scale)
+        """Плавно меняет визуальный масштаб всей фигуры."""
+
+        def process():
+            current = self.render_scale
+            if current < target_scale:
+                next_scale = min(target_scale, current + step_scale)
+            elif current > target_scale:
+                next_scale = max(target_scale, current - step_scale)
+            else:
+                return True
+            self.scale(next_scale)
+            return next_scale == target_scale
+
+        self.process_list.append(process)
 
     def start_offset_process(self, dx, dy):
         for hexagon in self.hexagon_list:
             hexagon.start_offset_process(dx, dy)
 
     def has_process(self):
-        return any(hexagon.has_process() for hexagon in self.hexagon_list)
+        return bool(self.process_list) or any(hexagon.has_process() for hexagon in self.hexagon_list)
 
     def __len__(self):
         return len(self.hexagon_list)
