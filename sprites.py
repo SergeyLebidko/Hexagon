@@ -89,27 +89,15 @@ def make_hex_sprite(fill, border, scale=1.0, pad=26, shadow_alpha=0, glow=None,
 
 
 def _trim(surface):
-    """Убирает лишние прозрачные поля, сохраняя центр гекса в центре картинки.
+    """Приводит спрайт к фиксированному размеру с центром гекса в центре картинки.
 
-    Обрезка заметно ускоряет блит, но позиционирование в игре считает, что
-    центр гекса совпадает с центром спрайта, поэтому после обрезки картинка
-    дополняется до симметричного размера.
+    Обрезка «по содержимому» здесь не годится: у цветных гексов есть тень, у
+    пустых её нет, поэтому итоговые размеры отличались, а вместе с ними —
+    и округление при позиционировании. Из-за этого одинаковые по геометрии
+    ячейки выглядели по-разному удалёнными друг от друга. Поэтому картинка
+    всегда одного размера, а лишние прозрачные поля остаются по краям.
     """
-    rect = surface.get_bounding_rect(min_alpha=1)
-    if rect.width <= 0 or rect.height <= 0:
-        return surface
-
-    size = surface.get_width()
-    half = size / 2
-    # Насколько содержимое выходит за центр в каждую сторону.
-    pad = int(max(half - rect.x, rect.right - half,
-                  half - rect.y, rect.bottom - half)) + 1
-    if pad * 2 >= size:
-        return surface
-
-    trimmed = pg.Surface((pad * 2, pad * 2), pg.SRCALPHA)
-    trimmed.blit(surface, (pad - rect.centerx, pad - rect.centery))
-    return trimmed.convert_alpha()
+    return surface.convert_alpha()
 
 
 class SpriteCache:
@@ -120,6 +108,11 @@ class SpriteCache:
     """
 
     SCALE_STEPS = 20
+    # Общий запас вокруг гекса. Он одинаков для всех состояний: если у цветных
+    # и пустых спрайтов он разный, размеры картинок отличаются на нечётное
+    # число пикселей, и при центрировании гексы смещаются друг относительно
+    # друга на 1 px — зазоры между ними выглядят неравномерными.
+    PADDING = 26
 
     def __init__(self):
         self._cache = {}
@@ -157,9 +150,9 @@ class SpriteCache:
 
         sprite = make_hex_sprite(
             fill, border, scale=quantized,
+            pad=self.PADDING,
             shadow_alpha=shadow_alpha,
             glow=glow,
-            inner_light=(state != 'empty'),
         )
         self._cache[key] = sprite
         return sprite
