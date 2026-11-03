@@ -692,20 +692,30 @@ class Field(Layer):
 
         self.invalidate(self.bounds)
 
+    SHADOW_MARGIN = 54
+
     @property
     def bounds(self):
+        """Границы слоя с запасом под мягкую тень доски.
+
+        Без этого запаса клип слоя срезал бы тень по ровной линии у нижнего
+        края — именно так она и выглядела обрезанной.
+        """
         rect = self.hexagon_list[0].bbox
         for hexagon in self.hexagon_list[1:]:
             rect = rect.union(hexagon.bbox)
-        return rect
+        return rect.inflate(self.SHADOW_MARGIN * 2, self.SHADOW_MARGIN * 2)
 
     def _get_shadow(self):
-        """Мягкая тень под всей доской, чтобы поле «парило» над фоном."""
+        """Мягкая тень под всей доской, чтобы поле «парило» над фоном.
+
+        Поверхность тени совпадает с bounds слоя: иначе клип срезал бы её.
+        """
         key = (len(self.hexagon_list), theme.name)
         if self._shadow is not None and self._shadow[0] == key:
             return self._shadow[1], self._shadow[2]
 
-        rect = self.bounds.inflate(60, 60)
+        rect = self.bounds
         shadow = pg.Surface(rect.size, pg.SRCALPHA)
         color = theme['board_shadow']
         for hexagon in self.hexagon_list:
