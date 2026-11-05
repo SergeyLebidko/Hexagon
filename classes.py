@@ -1213,3 +1213,67 @@ class Tab(Layer):
         caption = 'Новая игра' if action == 'new_game' else 'Выход'
         text = self._text(caption, self.button_font, text_color)
         self.surface.blit(text, text.get_rect(center=rect.center))
+
+
+class ThemeButton(Layer):
+    """Кнопка переключения светлой и тёмной темы в левом верхнем углу.
+
+    Раньше тему можно было сменить только клавишами T и F1, и в интерфейсе
+    об этом ничего не говорило. Кнопка делает возможность видимой.
+    """
+
+    SIZE = 44
+    MARGIN = 24
+
+    def __init__(self, sc):
+        Layer.__init__(self, sc)
+        self.rect = pg.Rect(self.MARGIN, self.MARGIN, self.SIZE, self.SIZE)
+        self.hovered = False
+        self.invalidate(self.bounds)
+
+    @property
+    def bounds(self):
+        # Запас под тень и подсветку, чтобы они не обрезались клипом слоя.
+        return self.rect.inflate(24, 24)
+
+    def hit(self, pos):
+        return self.rect.collidepoint(pos)
+
+    def set_hover(self, pos):
+        hovered = self.hit(pos)
+        if hovered != self.hovered:
+            self.hovered = hovered
+            self.invalidate(self.bounds)
+
+    def redraw(self, rect):
+        self.surface.fill((0, 0, 0, 0), rect)
+        if not rect.colliderect(self.bounds):
+            return
+
+        body = self.rect
+        fill = theme['theme_button_hover'] if self.hovered else theme['theme_button_fill']
+        pg.draw.rect(self.surface, fill, body, border_radius=12)
+        pg.draw.rect(self.surface, theme['theme_button_border'], body, width=1, border_radius=12)
+
+        color = theme['theme_button_icon']
+        cx, cy = body.center
+
+        if theme.name == 'light':
+            # Солнце: круг и восемь лучей.
+            pg.draw.circle(self.surface, color, (cx, cy), 7)
+            for index in range(8):
+                angle = pi / 4 * index
+                inner = 11
+                outer = 15
+                pg.draw.line(
+                    self.surface, color,
+                    (cx + inner * cos(angle), cy - inner * sin(angle)),
+                    (cx + outer * cos(angle), cy - outer * sin(angle)),
+                    2)
+        else:
+            # Луна: круг, из которого вырезан смещённый круг.
+            radius = 9
+            mask = pg.Surface((radius * 2 + 2, radius * 2 + 2), pg.SRCALPHA)
+            pg.draw.circle(mask, (*color, 255), (radius + 1, radius + 1), radius)
+            pg.draw.circle(mask, (0, 0, 0, 0), (radius + 6, radius - 2), radius)
+            self.surface.blit(mask, (cx - radius - 1, cy - radius - 1))

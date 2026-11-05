@@ -5,7 +5,7 @@
 """
 from settings import pg, W, H, WINDOW_TITLE, FPS, GAME_MODE, FINAL_MODE
 from theme import theme
-from classes import Field, Pool, DragAndDrop, Background, Tab, Renderer, FxLayer
+from classes import Field, Pool, DragAndDrop, Background, Tab, Renderer, FxLayer, ThemeButton
 
 
 def init_new_game(sc):
@@ -26,9 +26,10 @@ def run():
     background = Background(sc)
     field, pool, drag_and_drop, tab = init_new_game(sc)
     fx = FxLayer(sc)
+    theme_button = ThemeButton(sc)
     # Порядок слоёв задаёт порядок наложения: поле, пул, фигура под курсором,
-    # эффекты и счёт.
-    renderer = Renderer(sc, background, [field, pool, drag_and_drop, fx, tab])
+    # эффекты, счёт и поверх всего кнопка темы.
+    renderer = Renderer(sc, background, [field, pool, drag_and_drop, fx, tab, theme_button])
 
     def switch_theme():
         """Перекрашивает всё под выбранную тему.
@@ -40,6 +41,7 @@ def run():
         background.rebuild()
         field._shadow = None
         tab._rendered = {}
+        theme_button.invalidate(theme_button.bounds)
         renderer.invalidate_all()
 
     mode = GAME_MODE
@@ -58,6 +60,16 @@ def run():
             if event.type == pg.KEYDOWN and event.key in (pg.K_t, pg.K_F1):
                 switch_theme()
                 continue
+
+            # Кнопка темы обрабатывается раньше всего остального и перехватывает
+            # клик: иначе он мог бы начать перетаскивание фигуры.
+            if event.type == pg.MOUSEMOTION:
+                theme_button.set_hover(event.pos)
+
+            if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
+                if theme_button.hit(event.pos):
+                    switch_theme()
+                    continue
 
             if mode == GAME_MODE:
                 if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
