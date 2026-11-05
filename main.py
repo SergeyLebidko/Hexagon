@@ -88,12 +88,21 @@ def run():
                             mode = FINAL_MODE
 
             elif mode == FINAL_MODE:
-                if event.type == pg.KEYDOWN:
-                    field, pool, drag_and_drop, tab = init_new_game(sc)
-                    renderer.layers = [field, pool, drag_and_drop, fx, tab]
-                    fx.clear()
-                    renderer.invalidate_all()
-                    mode = GAME_MODE
+                # Кнопки: наведение подсвечивает, клик выполняет действие.
+                if event.type == pg.MOUSEMOTION:
+                    tab.set_hover(event.pos)
+
+                if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
+                    action = tab.button_at(event.pos)
+                    if action == 'new_game':
+                        field, pool, drag_and_drop, tab = init_new_game(sc)
+                        renderer.layers = [field, pool, drag_and_drop, fx, tab]
+                        fx.clear()
+                        renderer.invalidate_all()
+                        mode = GAME_MODE
+                    elif action == 'quit':
+                        pg.quit()
+                        return
 
         renderer.draw()
         clock.tick(FPS)

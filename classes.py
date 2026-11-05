@@ -1050,12 +1050,14 @@ class Tab(Layer):
         self.score = 0
         self.target_score = 0
         self.final = False
+        self.hovered = None
         self._rendered = {}
 
         self.label = fonts.regular(19)
         self.big = fonts.bold(64)
         self.info = fonts.medium(22)
         self.hint = fonts.regular(20)
+        self.button_font = fonts.semibold(21)
 
         self.invalidate(self.bounds)
 
@@ -1075,8 +1077,36 @@ class Tab(Layer):
     def card_rect(self):
         """Карточка финального экрана. Она лежит по центру, поэтому текст
         не может оказаться поверх гексов игрового поля."""
-        width, height = 560, 300
+        width, height = 560, 380
         return pg.Rect((W - width) // 2, (H - height) // 2, width, height)
+
+    @property
+    def button_rects(self):
+        """Кнопки финального экрана: (действие, прямоугольник)."""
+        card = self.card_rect
+        width, height, gap = 200, 52, 24
+        left = card.centerx - width - gap // 2
+        top = card.bottom - height - 58
+        return [
+            ('new_game', pg.Rect(left, top, width, height)),
+            ('quit', pg.Rect(left + width + gap, top, width, height)),
+        ]
+
+    def button_at(self, pos):
+        """Возвращает действие кнопки под курсором или None."""
+        if not self.final:
+            return None
+        for action, rect in self.button_rects:
+            if rect.collidepoint(pos):
+                return action
+        return None
+
+    def set_hover(self, pos):
+        """Подсвечивает кнопку под курсором."""
+        hovered = self.button_at(pos)
+        if hovered != self.hovered:
+            self.hovered = hovered
+            self.invalidate(self.card_rect.inflate(60, 60))
 
     @property
     def bounds(self):
@@ -1151,17 +1181,35 @@ class Tab(Layer):
 
         center_x = card.centerx
         title = self._text('ИГРА ОКОНЧЕНА', self.info, theme['text_final'])
-        self.surface.blit(title, title.get_rect(center=(center_x, card.y + 58)))
+        self.surface.blit(title, title.get_rect(center=(center_x, card.y + 54)))
+
+        label = self._text('С Ч Ё Т', self.label, theme['text_secondary'])
+        self.surface.blit(label, label.get_rect(center=(center_x, card.y + 92)))
 
         text = '{:,}'.format(self.score).replace(',', ' ')
         score = self._text(text, self.big, theme['text_primary'])
         shadow = self._text(text, self.big, theme['text_shadow'])
-        rect_score = score.get_rect(center=(center_x, card.y + 136))
+        rect_score = score.get_rect(center=(center_x, card.y + 152))
         self.surface.blit(shadow, rect_score.move(0, 3))
         self.surface.blit(score, rect_score)
 
-        label = self._text('С Ч Ё Т', self.label, theme['text_secondary'])
-        self.surface.blit(label, label.get_rect(center=(center_x, card.y + 186)))
+        for action, button in self.button_rects:
+            self._draw_button(action, button)
 
-        hint = self._text('нажмите любую клавишу', self.hint, theme['text_secondary'])
-        self.surface.blit(hint, hint.get_rect(center=(center_x, card.bottom - 46)))
+    def _draw_button(self, action, rect):
+        if action == 'new_game':
+            fill = theme['button_primary_hover'] if self.hovered == action else theme['button_primary']
+            text_color = theme['button_primary_text']
+            border = None
+        else:
+            fill = theme['button_secondary_hover'] if self.hovered == action else theme['button_secondary']
+            text_color = theme['button_secondary_text']
+            border = theme['button_border']
+
+        pg.draw.rect(self.surface, fill, rect, border_radius=14)
+        if border:
+            pg.draw.rect(self.surface, border, rect, width=1, border_radius=14)
+
+        caption = 'Новая игра' if action == 'new_game' else 'Выход'
+        text = self._text(caption, self.button_font, text_color)
+        self.surface.blit(text, text.get_rect(center=rect.center))

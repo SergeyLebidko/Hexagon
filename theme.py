@@ -50,6 +50,15 @@ LIGHT = {
     'card_fill': (252, 253, 255, 252),
     'card_border': (214, 220, 234, 255),
     'card_shadow': (24, 32, 56, 80),
+
+    # Кнопки
+    'button_primary': (74, 158, 255),
+    'button_primary_hover': (52, 138, 240),
+    'button_primary_text': (255, 255, 255),
+    'button_secondary': (236, 239, 247),
+    'button_secondary_hover': (224, 229, 240),
+    'button_secondary_text': (74, 86, 116),
+    'button_border': (205, 212, 228),
 }
 
 DARK = {
@@ -92,6 +101,15 @@ DARK = {
     'card_fill': (44, 50, 68, 252),
     'card_border': (78, 88, 112, 255),
     'card_shadow': (0, 0, 0, 130),
+
+    # Кнопки
+    'button_primary': (96, 174, 255),
+    'button_primary_hover': (122, 190, 255),
+    'button_primary_text': (18, 24, 38),
+    'button_secondary': (62, 70, 92),
+    'button_secondary_hover': (78, 88, 114),
+    'button_secondary_text': (226, 233, 246),
+    'button_border': (88, 98, 124),
 }
 
 THEMES = {'light': LIGHT, 'dark': DARK}
