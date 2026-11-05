@@ -27,9 +27,19 @@ def run():
     field, pool, drag_and_drop, tab = init_new_game(sc)
     fx = FxLayer(sc)
     theme_button = ThemeButton(sc)
+
+    def build_layers():
+        """Единственное место, где собирается список слоёв.
+
+        Раньше список задавался в двух местах, и при перезапуске игры кнопка
+        темы из него терялась: нарисоваться она больше не могла, хотя клики
+        по её месту продолжали работать.
+        """
+        return [field, pool, drag_and_drop, fx, tab, theme_button]
+
     # Порядок слоёв задаёт порядок наложения: поле, пул, фигура под курсором,
     # эффекты, счёт и поверх всего кнопка темы.
-    renderer = Renderer(sc, background, [field, pool, drag_and_drop, fx, tab, theme_button])
+    renderer = Renderer(sc, background, build_layers())
 
     def switch_theme():
         """Перекрашивает всё под выбранную тему.
@@ -108,7 +118,7 @@ def run():
                     action = tab.button_at(event.pos)
                     if action == 'new_game':
                         field, pool, drag_and_drop, tab = init_new_game(sc)
-                        renderer.layers = [field, pool, drag_and_drop, fx, tab]
+                        renderer.layers = build_layers()
                         fx.clear()
                         renderer.invalidate_all()
                         mode = GAME_MODE
