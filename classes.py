@@ -1252,10 +1252,12 @@ class ThemeButton(Layer):
 
         body = self.rect
         fill = theme['theme_button_hover'] if self.hovered else theme['theme_button_fill']
-        pg.draw.rect(self.surface, fill, body, border_radius=12)
-        pg.draw.rect(self.surface, theme['theme_button_border'], body, width=1, border_radius=12)
+        border = theme['theme_button_border_hover'] if self.hovered else theme['theme_button_border']
+        color = theme['theme_button_icon_hover'] if self.hovered else theme['theme_button_icon']
 
-        color = theme['theme_button_icon']
+        pg.draw.rect(self.surface, fill, body, border_radius=12)
+        pg.draw.rect(self.surface, border, body, width=1, border_radius=12)
+
         cx, cy = body.center
 
         if theme.name == 'light':

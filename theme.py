@@ -62,9 +62,11 @@ LIGHT = {
 
     # Кнопка переключения темы
     'theme_button_fill': (255, 255, 255, 190),
-    'theme_button_hover': (255, 255, 255, 245),
+    'theme_button_hover': (226, 236, 252, 250),
     'theme_button_border': (208, 215, 230),
+    'theme_button_border_hover': (150, 186, 240),
     'theme_button_icon': (96, 108, 138),
+    'theme_button_icon_hover': (52, 104, 190),
 }
 
 DARK = {
@@ -118,9 +120,11 @@ DARK = {
     'button_border': (88, 98, 124),
 
     'theme_button_fill': (54, 61, 80, 190),
-    'theme_button_hover': (68, 76, 98, 245),
+    'theme_button_hover': (78, 88, 116, 250),
     'theme_button_border': (86, 96, 122),
+    'theme_button_border_hover': (126, 158, 210),
     'theme_button_icon': (214, 223, 240),
+    'theme_button_icon_hover': (255, 255, 255),
 }
 
 THEMES = {'light': LIGHT, 'dark': DARK}
