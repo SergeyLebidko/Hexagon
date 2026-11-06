@@ -18,6 +18,14 @@ def shade(color, factor):
     return tuple(max(0, min(255, int(channel * factor))) for channel in color[:3])
 
 
+def mix(color, target, amount):
+    """Смешивает цвет с target: amount=0 — исходный, 1 — целевой."""
+    return tuple(
+        max(0, min(255, int(channel + (to - channel) * amount)))
+        for channel, to in zip(color[:3], target)
+    )
+
+
 def _hex_points(cx, cy, scale=1.0):
     """Контур гекса. Геометрия общая с логикой столкновений (utils)."""
     return hexagon_points(cx, cy, scale)
@@ -165,10 +173,13 @@ class SpriteCache:
             return cached
 
         if state == 'placed':
-            # Ячейка поля: обводка темнее заливки, чтобы читалась сетка,
-            # и без тени — иначе тень ложится на соседние гексы.
+            # Ячейка поля: обводка темнее заливки в светлой теме и светлее
+            # в тёмной — так контур читается на любом фоне. Считать его от
+            # заливки фиксированным множителем нельзя: палитры тем подобраны
+            # равнояркими, и обводка в них получалась почти одинаковой.
+            # Тени нет — иначе она ложится на соседние гексы.
             fill = theme.palette_color(color_index)
-            border = shade(fill, 0.62)
+            border = mix(fill, theme['placed_border_ref'], theme['placed_border_mix'])
             shadow_alpha = 0
         elif state == 'figure':
             fill = theme.palette_color(color_index)
