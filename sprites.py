@@ -159,7 +159,10 @@ class SpriteCache:
 
         if state == 'figure':
             fill = theme.palette_color(color_index)
-            border = shade(fill, 0.62)
+            # У фигур в пуле обводка совпадает с заливкой: тёмный контур
+            # «нарезал» фигуру на отдельные гексы. Цвет обводки оставлен, чтобы
+            # край оставался ровным и сглаженным, а не размывался градиентом.
+            border = fill
             shadow_alpha = theme['sprite_shadow']
         elif state == 'marked':
             fill = theme['marked_fill']
