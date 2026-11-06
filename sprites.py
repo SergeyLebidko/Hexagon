@@ -150,18 +150,31 @@ class SpriteCache:
         return step / SpriteCache.SCALE_STEPS
 
     def hex_sprite(self, state, color_index, scale, theme, fill=None, border=None, glow=None):
-        """state: 'empty' | 'marked' | 'figure'; color_index — только для figure."""
+        """Состояние гекса.
+
+        'empty'  — свободная ячейка поля;
+        'marked' — ячейка под перетаскиваемой фигурой;
+        'placed' — ячейка поля с поставленным гексом;
+        'figure' — гекс внутри фигуры (в пуле и под курсором).
+        """
         quantized = self.quantize(scale)
-        key = (theme.name, state, color_index if state == 'figure' else None, quantized)
+        colored = state in ('figure', 'placed')
+        key = (theme.name, state, color_index if colored else None, quantized)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
 
-        if state == 'figure':
+        if state == 'placed':
+            # Ячейка поля: обводка темнее заливки, чтобы читалась сетка,
+            # и без тени — иначе тень ложится на соседние гексы.
             fill = theme.palette_color(color_index)
-            # У фигур в пуле обводка совпадает с заливкой: тёмный контур
-            # «нарезал» фигуру на отдельные гексы. Цвет обводки оставлен, чтобы
-            # край оставался ровным и сглаженным, а не размывался градиентом.
+            border = shade(fill, 0.62)
+            shadow_alpha = 0
+        elif state == 'figure':
+            fill = theme.palette_color(color_index)
+            # У фигур обводка совпадает с заливкой: тёмный контур «нарезал»
+            # фигуру на отдельные гексы. Цвет обводки оставлен, чтобы край
+            # оставался ровным и сглаженным, а не размывался градиентом.
             border = fill
             shadow_alpha = theme['sprite_shadow']
         elif state == 'marked':

@@ -793,7 +793,7 @@ class Field(Layer):
         changed = None
         for field_hexagon in free_hexagons_under_figure:
             field_hexagon.content = True
-            field_hexagon.state = 'figure'
+            field_hexagon.state = 'placed'
             field_hexagon.color_index = figure.color_index
             changed = field_hexagon.bbox if changed is None else changed.union(field_hexagon.bbox)
         self.invalidate(changed)
