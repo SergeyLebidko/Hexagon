@@ -5,13 +5,11 @@
 Отрисовка блитом дешевле, чем polygon + линии, поэтому визуальные эффекты
 не только не замедляют кадр, но и ускоряют его.
 """
-from math import pi, cos, sin
-
 import pygame as pg
 from pygame import gfxdraw
 
-from settings import HEX_MARGIN
 from config import board
+from utils import hexagon_points
 
 
 def shade(color, factor):
@@ -20,13 +18,8 @@ def shade(color, factor):
 
 
 def _hex_points(cx, cy, scale=1.0):
-    points = []
-    alpha = pi / 6
-    radius = (board.radius - HEX_MARGIN) * scale
-    for _ in range(6):
-        points.append((cx + radius * cos(alpha), cy - radius * sin(alpha)))
-        alpha += pi / 3
-    return points
+    """Контур гекса. Геометрия общая с логикой столкновений (utils)."""
+    return hexagon_points(cx, cy, scale)
 
 
 def _int_points(cx, cy, scale=1.0):

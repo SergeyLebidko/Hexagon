@@ -1,53 +1,63 @@
-from math import pi, cos, sin, sqrt
-from settings import HEX_MARGIN, SMOOTH_FACTOR, SMOOTH_DEPTH
+from math import pi, cos, sin, sqrt, hypot
+from settings import HEX_MARGIN, CORNER_ROUNDING
 from config import board
+
+# Сколько отрезков используется для каждого скруглённого угла.
+# Четыре дают достаточную гладкость при 3 px и не раздувают контур.
+_ROUNDING_SEGMENTS = 4
+
+
+def hexagon_points(x0, y0, scale=1.0):
+    """Контур гекса со скруглёнными углами.
+
+    Каждый угол заменяется квадратичной кривой Безье: она срезает остриё,
+    оставляя края прямыми. Радиус скругления масштабируется вместе с гексом,
+    поэтому при уменьшении фигуры форма не «плывёт».
+    """
+    radius = (board.radius - HEX_MARGIN) * scale
+    corners = []
+    alpha = pi / 6
+    for _ in range(6):
+        corners.append((x0 + radius * cos(alpha), y0 - radius * sin(alpha)))
+        alpha += pi / 3
+
+    rounding = CORNER_ROUNDING * scale
+    if rounding <= 0:
+        return corners
+
+    points = []
+    for index in range(6):
+        previous = corners[index - 1]
+        current = corners[index]
+        following = corners[(index + 1) % 6]
+
+        to_previous = (previous[0] - current[0], previous[1] - current[1])
+        to_following = (following[0] - current[0], following[1] - current[1])
+        length_previous = hypot(*to_previous)
+        length_following = hypot(*to_following)
+
+        # Скругление не должно занимать больше половины ребра, иначе соседние
+        # углы начнут наезжать друг на друга.
+        limit = min(length_previous, length_following) / 2 * 0.9
+        radius_here = min(rounding, limit)
+
+        start = (current[0] + to_previous[0] / length_previous * radius_here,
+                 current[1] + to_previous[1] / length_previous * radius_here)
+        end = (current[0] + to_following[0] / length_following * radius_here,
+               current[1] + to_following[1] / length_following * radius_here)
+
+        for step in range(_ROUNDING_SEGMENTS + 1):
+            t = step / _ROUNDING_SEGMENTS
+            inverse = 1 - t
+            points.append((
+                inverse ** 2 * start[0] + 2 * inverse * t * current[0] + t ** 2 * end[0],
+                inverse ** 2 * start[1] + 2 * inverse * t * current[1] + t ** 2 * end[1],
+            ))
+    return points
 
 
 def create_hexagon_coords(x0, y0, scale):
-    alpha = pi / 6
-    delta_alpha = pi / 3
-    radius = board.radius - HEX_MARGIN
-    coords = []
-    for _ in range(6):
-        coords.append(
-            (
-                x0 + scale * radius * cos(alpha),
-                y0 - scale * radius * sin(alpha)
-            )
-        )
-        alpha += delta_alpha
-    return smooth(coords, SMOOTH_DEPTH)
-
-
-def smooth(coords, depth):
-    """Функция сглаживает края гекса"""
-    if depth == 0:
-        return coords
-
-    smooth_coords = []
-    for index in range(len(coords)):
-        x0, y0 = coords[index]
-        try:
-            x1, y1 = coords[index - 1]
-        except IndexError:
-            x1, y1 = coords[-1]
-        try:
-            x2, y2 = coords[index + 1]
-        except IndexError:
-            x2, y2 = coords[0]
-
-        vector1 = SMOOTH_FACTOR * (x1 - x0), SMOOTH_FACTOR * (y1 - y0)
-        vector2 = SMOOTH_FACTOR * (x2 - x0), SMOOTH_FACTOR * (y2 - y0)
-
-        xa, ya = x0 + vector1[0], y0 + vector1[1]
-        xb, yb = x0 + vector2[0], y0 + vector2[1]
-
-        xc, yc = (xa + xb) / 2, (ya + yb) / 2
-        xd, yd = (x0 + xc) / 2, (y0 + yc) / 2
-
-        smooth_coords.extend([(xa, ya), (xd, yd), (xb, yb)])
-
-    return smooth(smooth_coords, depth - 1)
+    return hexagon_points(x0, y0, scale)
 
 
 def normalize_value(value):
