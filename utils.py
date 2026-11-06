@@ -1,16 +1,18 @@
 from math import pi, cos, sin, sqrt
-from settings import RADIUS, HEX_MARGIN, SMOOTH_FACTOR, SMOOTH_DEPTH
+from settings import HEX_MARGIN, SMOOTH_FACTOR, SMOOTH_DEPTH
+from config import board
 
 
 def create_hexagon_coords(x0, y0, scale):
     alpha = pi / 6
     delta_alpha = pi / 3
+    radius = board.radius - HEX_MARGIN
     coords = []
     for _ in range(6):
         coords.append(
             (
-                x0 + scale * (RADIUS - HEX_MARGIN) * cos(alpha),
-                y0 - scale * (RADIUS - HEX_MARGIN) * sin(alpha)
+                x0 + scale * radius * cos(alpha),
+                y0 - scale * radius * sin(alpha)
             )
         )
         alpha += delta_alpha

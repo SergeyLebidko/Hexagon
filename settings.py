@@ -1,5 +1,3 @@
-from math import pi, cos
-
 # Импорт pygame добавлен сюда, чтобы избежать циклического импорта в других модулях
 import pygame as pg
 
@@ -16,9 +14,9 @@ BACKGROUND_COLORS_RANGE = (240, 250)
 # Размер квадратика фонового шума в пикселях
 BACKGROUND_STEP = 5
 
-# Параметры отдельных гексов
-RADIUS = 45
-NORMAL = RADIUS * cos(pi / 6)
+# Отступ от края ячейки до края гекса.
+# Радиус гекса и число слоёв поля живут в config.py: они меняются на лету
+# при переключении размера поля.
 HEX_MARGIN = 3
 
 # Параметры сглаживания углов гексов
@@ -26,7 +24,6 @@ SMOOTH_FACTOR = 0.15
 SMOOTH_DEPTH = 1
 
 # Параметры игрового поля
-LAYERS_COUNT = 4
 EMPTY_HEXAGON_COLOR = (220, 220, 220)
 MARKED_HEXAGON_COLOR = (180, 180, 180)
 

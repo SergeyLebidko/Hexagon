@@ -10,7 +10,8 @@ from math import pi, cos, sin
 import pygame as pg
 from pygame import gfxdraw
 
-from settings import RADIUS, HEX_MARGIN
+from settings import HEX_MARGIN
+from config import board
 
 
 def shade(color, factor):
@@ -21,7 +22,7 @@ def shade(color, factor):
 def _hex_points(cx, cy, scale=1.0):
     points = []
     alpha = pi / 6
-    radius = (RADIUS - HEX_MARGIN) * scale
+    radius = (board.radius - HEX_MARGIN) * scale
     for _ in range(6):
         points.append((cx + radius * cos(alpha), cy - radius * sin(alpha)))
         alpha += pi / 3
@@ -59,7 +60,7 @@ def make_hex_sprite(fill, border, scale=1.0, pad=26, shadow_alpha=0, glow=None,
     shadow_alpha — сила мягкой тени (0 отключает её);
     glow — цвет внешнего свечения (используется для подсветки ячейки).
     """
-    size = int(2 * (RADIUS * scale + pad))
+    size = int(2 * (board.radius * scale + pad))
     cx = cy = size / 2
     layer = pg.Surface((size, size), pg.SRCALPHA)
     points = _int_points(cx, cy, scale)

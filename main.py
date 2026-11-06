@@ -4,8 +4,11 @@
 входа, а игровая логика оставалась простой.
 """
 from settings import pg, W, H, WINDOW_TITLE, FPS, GAME_MODE, FINAL_MODE
-from theme import theme
-from classes import Field, Pool, DragAndDrop, Background, Tab, Renderer, FxLayer, ThemeButton
+from theme import theme, THEMES
+from config import board, load_preferences, save_preferences
+from sprites import cache
+from classes import (Field, Pool, DragAndDrop, Background, Tab, Renderer,
+                     FxLayer, ThemeButton, SizeButton)
 
 
 def init_new_game(sc):
@@ -16,6 +19,22 @@ def init_new_game(sc):
     return field, pool, drag_and_drop, tab
 
 
+def apply_saved_preferences():
+    """Применяет сохранённые настройки. Битый файл просто игнорируется."""
+    prefs = load_preferences()
+    if not prefs:
+        return
+
+    board.set_size(prefs.get('board_size', board.size))
+    saved_theme = prefs.get('theme')
+    if saved_theme in THEMES:
+        theme.current = THEMES[saved_theme]
+
+
+def store_preferences():
+    save_preferences({'board_size': board.size, 'theme': theme.name})
+
+
 def run():
     # Инициализируем окно
     pg.init()
@@ -23,10 +42,13 @@ def run():
     pg.display.set_caption(WINDOW_TITLE)
     clock = pg.time.Clock()
 
+    apply_saved_preferences()
+
     background = Background(sc)
     field, pool, drag_and_drop, tab = init_new_game(sc)
     fx = FxLayer(sc)
     theme_button = ThemeButton(sc)
+    size_button = SizeButton(sc)
 
     def build_layers():
         """Единственное место, где собирается список слоёв.
@@ -35,11 +57,19 @@ def run():
         темы из него терялась: нарисоваться она больше не могла, хотя клики
         по её месту продолжали работать.
         """
-        return [field, pool, drag_and_drop, fx, tab, theme_button]
+        return [field, pool, drag_and_drop, fx, tab, theme_button, size_button]
 
     # Порядок слоёв задаёт порядок наложения: поле, пул, фигура под курсором,
-    # эффекты, счёт и поверх всего кнопка темы.
+    # эффекты, счёт и поверх всего кнопки в углу.
     renderer = Renderer(sc, background, build_layers())
+
+    def restart_game():
+        """Начинает новую партию, сохраняя выбранные размер и тему."""
+        nonlocal field, pool, drag_and_drop, tab
+        field, pool, drag_and_drop, tab = init_new_game(sc)
+        renderer.layers = build_layers()
+        fx.clear()
+        renderer.invalidate_all()
 
     def switch_theme():
         """Перекрашивает всё под выбранную тему.
@@ -52,7 +82,21 @@ def run():
         field._shadow = None
         tab._rendered = {}
         theme_button.invalidate(theme_button.bounds)
+        size_button.invalidate(size_button.bounds)
         renderer.invalidate_all()
+        store_preferences()
+
+    def switch_size(size):
+        """Меняет размер поля. Смена размера требует новой партии."""
+        if size == board.size:
+            return
+        board.set_size(size)
+        # Спрайты нарисованы под конкретный радиус гекса - их нужно пересобрать.
+        cache.clear()
+        field._shadow = None
+        size_button.invalidate(size_button.bounds)
+        restart_game()
+        store_preferences()
 
     mode = GAME_MODE
     while True:
@@ -71,14 +115,19 @@ def run():
                 switch_theme()
                 continue
 
-            # Кнопка темы обрабатывается раньше всего остального и перехватывает
-            # клик: иначе он мог бы начать перетаскивание фигуры.
+            # Кнопки в углу обрабатываются раньше всего остального и
+            # перехватывают клик: иначе он мог бы начать перетаскивание фигуры.
             if event.type == pg.MOUSEMOTION:
                 theme_button.set_hover(event.pos)
+                size_button.set_hover(event.pos)
 
             if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
                 if theme_button.hit(event.pos):
                     switch_theme()
+                    continue
+                size = size_button.hit(event.pos)
+                if size:
+                    switch_size(size)
                     continue
 
             if mode == GAME_MODE:
@@ -117,10 +166,7 @@ def run():
                 if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
                     action = tab.button_at(event.pos)
                     if action == 'new_game':
-                        field, pool, drag_and_drop, tab = init_new_game(sc)
-                        renderer.layers = build_layers()
-                        fx.clear()
-                        renderer.invalidate_all()
+                        restart_game()
                         mode = GAME_MODE
                     elif action == 'quit':
                         pg.quit()

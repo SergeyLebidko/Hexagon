@@ -2,7 +2,8 @@ import random
 from copy import deepcopy
 from math import pi, sin, cos
 
-from settings import pg, W, H, LAYERS_COUNT, NORMAL, RADIUS, HEX_MARGIN, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
+from settings import pg, W, H, HEX_MARGIN, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
+from config import board
 from theme import theme
 from fonts import fonts
 from sprites import cache, shade
@@ -394,7 +395,7 @@ class Figure:
                 rect = rect.union(hexagon.bbox)
             return rect
 
-        radius = int((RADIUS + 18) * self.render_scale) + 4
+        radius = int((board.radius + 18) * self.render_scale) + 4
         rect = None
         for hexagon in self.hexagon_list:
             hx, hy = self._scaled_center(hexagon)
@@ -419,7 +420,7 @@ class Figure:
         cx, cy = self.center
         for hexagon in self.hexagon_list:
             hx, hy = self._scaled_center(hexagon)
-            radius = (RADIUS - HEX_MARGIN) * self.render_scale
+            radius = (board.radius - HEX_MARGIN) * self.render_scale
             if (x - hx) ** 2 + (y - hy) ** 2 <= radius * radius:
                 return True
         return False
@@ -525,8 +526,8 @@ class Pool(Layer):
             for direction in figure_data:
                 alpha = pi / 3 + direction * (pi / 3)
                 last_hexagon = FigureHexagon(
-                    last_hexagon.x0 + 2 * NORMAL * cos(alpha),
-                    last_hexagon.y0 - 2 * NORMAL * sin(alpha)
+                    last_hexagon.x0 + 2 * board.normal * cos(alpha),
+                    last_hexagon.y0 - 2 * board.normal * sin(alpha)
                 )
                 hexagon_list.append(last_hexagon)
 
@@ -630,7 +631,6 @@ class Pool(Layer):
 
 
 class Field(Layer):
-    MARKED_RADIUS = 1.02 * RADIUS
 
     def __init__(self, sc):
         Layer.__init__(self, sc)
@@ -643,15 +643,15 @@ class Field(Layer):
 
         # Последовательно создаем слои гексов вокруг центрального
         delta_alpha = pi / 3
-        for layer in range(LAYERS_COUNT):
+        for layer in range(board.layers):
             anchor_hexagons = []
             alpha = 2 * pi / 6
 
             # Генерируем список опорных гексов
             for direction in range(6):
                 anchor_hexagons.append(FieldHexagon(
-                    center_hexagon.x0 + (2 * NORMAL * (layer + 1)) * cos(alpha),
-                    center_hexagon.y0 - (2 * NORMAL * (layer + 1)) * sin(alpha),
+                    center_hexagon.x0 + (2 * board.normal * (layer + 1)) * cos(alpha),
+                    center_hexagon.y0 - (2 * board.normal * (layer + 1)) * sin(alpha),
                     D_PARAMS[direction]['x-axis'] * (layer + 1),
                     D_PARAMS[direction]['y-axis'] * (layer + 1),
                     D_PARAMS[direction]['z-axis'] * (layer + 1)
@@ -722,7 +722,7 @@ class Field(Layer):
             pg.draw.circle(
                 shadow, color,
                 (int(hexagon.x0 - rect.x), int(hexagon.y0 - rect.y + 10)),
-                int(RADIUS * 1.02))
+                int(board.radius * 1.02))
         shadow = pg.transform.box_blur(shadow, 14)
         self._shadow = (key, shadow, rect)
         return shadow, rect
@@ -804,7 +804,7 @@ class Field(Layer):
         self.last_line_remove_count = 0
         list_for_clear = []
         for axis in ['x_axis', 'y_axis', 'z_axis']:
-            for val in range(-LAYERS_COUNT, LAYERS_COUNT + 1):
+            for val in range(-board.layers, board.layers + 1):
                 tmp_hexagon_list = [hexagon for hexagon in self.hexagon_list if getattr(hexagon, axis) == val]
                 if all(hexagon.content for hexagon in tmp_hexagon_list):
                     self.last_line_remove_count += 1
@@ -862,7 +862,7 @@ class Field(Layer):
         centers = [(hexagon.x0, hexagon.y0) for hexagon in figure.hexagon_list]
         # Гекс фигуры не может накрыть ячейку, центр которой дальше его радиуса,
         # поэтому такие пары отсеиваем ещё до дорогой проверки на пересечение.
-        reach = RADIUS * RADIUS
+        reach = board.radius * board.radius
         for field_hexagon in self.hexagon_list:
             if field_hexagon.content:
                 continue
@@ -1279,3 +1279,73 @@ class ThemeButton(Layer):
             pg.draw.circle(mask, (*color, 255), (radius + 1, radius + 1), radius)
             pg.draw.circle(mask, (0, 0, 0, 0), (radius + 6, radius - 2), radius)
             self.surface.blit(mask, (cx - radius - 1, cy - radius - 1))
+
+
+class SizeButton(Layer):
+    """Три кнопки выбора размера поля: S, M, L.
+
+    Стоит под кнопкой темы. При переключении игра начинается заново — размер
+    поля задаёт радиус гексов и их число, пересобрать партию на ходу нельзя.
+    """
+
+    SIZE = 44
+    GAP = 8
+    MARGIN = 24
+    TOP = 80
+    LABELS = ('S', 'M', 'L')
+
+    def __init__(self, sc):
+        Layer.__init__(self, sc)
+        self.hovered = None
+        self.font = fonts.semibold(20)
+        self.invalidate(self.bounds)
+
+    @property
+    def rects(self):
+        return [
+            pg.Rect(self.MARGIN + index * (self.SIZE + self.GAP), self.TOP, self.SIZE, self.SIZE)
+            for index in range(len(self.LABELS))
+        ]
+
+    @property
+    def bounds(self):
+        rect = self.rects[0]
+        for item in self.rects[1:]:
+            rect = rect.union(item)
+        return rect.inflate(16, 16)
+
+    def hit(self, pos):
+        """Возвращает подпись размера под курсором или None."""
+        for label, rect in zip(self.LABELS, self.rects):
+            if rect.collidepoint(pos):
+                return label
+        return None
+
+    def set_hover(self, pos):
+        hovered = self.hit(pos)
+        if hovered != self.hovered:
+            self.hovered = hovered
+            self.invalidate(self.bounds)
+
+    def redraw(self, rect):
+        self.surface.fill((0, 0, 0, 0), rect)
+        if not rect.colliderect(self.bounds):
+            return
+
+        for label, button in zip(self.LABELS, self.rects):
+            active = label == board.size
+            if active:
+                fill = theme['button_primary']
+                border = None
+                text_color = theme['button_primary_text']
+            else:
+                fill = theme['theme_button_hover'] if self.hovered == label else theme['theme_button_fill']
+                border = theme['theme_button_border']
+                text_color = theme['theme_button_icon']
+
+            pg.draw.rect(self.surface, fill, button, border_radius=12)
+            if border:
+                pg.draw.rect(self.surface, border, button, width=1, border_radius=12)
+
+            text = self.font.render(label, True, text_color)
+            self.surface.blit(text, text.get_rect(center=button.center))
