@@ -8,6 +8,7 @@
 import pygame as pg
 from pygame import gfxdraw
 
+from settings import BORDER_WIDTH
 from config import board
 from utils import hexagon_points
 
@@ -45,13 +46,43 @@ def _gradient_body(size, fill, scale=1.0):
     return body
 
 
+def _stroke(surface, points, color, width, cx, cy, scale=1.0):
+    """Обводка контура заданной толщины, растущая внутрь.
+
+    gfxdraw.aapolygon рисует линию толщиной в один пиксель, а несколько
+    сдвинутых копий дают рваный край. Поэтому граница строится как разница
+    между внешним контуром и уменьшенной копией: получается ровное кольцо,
+    которое не выходит за силуэт гекса.
+    """
+    if width <= 1:
+        gfxdraw.aapolygon(surface, points, color)
+        return
+
+    outer = [(int(x), int(y)) for x, y in points]
+
+    # Во сколько раз уменьшить контур, чтобы отступить на width пикселей.
+    base_radius = (board.radius - 1) * scale
+    if base_radius <= 0:
+        gfxdraw.aapolygon(surface, outer, color)
+        return
+    factor = max(0.0, 1.0 - width / base_radius)
+
+    ring = pg.Surface(surface.get_size(), pg.SRCALPHA)
+    gfxdraw.filled_polygon(ring, outer, color)
+    if factor > 0:
+        inner = [(int(cx + (x - cx) * factor), int(cy + (y - cy) * factor)) for x, y in points]
+        gfxdraw.filled_polygon(ring, inner, (0, 0, 0, 0))
+    surface.blit(ring, (0, 0))
+
+
 def make_hex_sprite(fill, border, scale=1.0, pad=26, shadow_alpha=0, glow=None,
-                    inner_light=True, blur=7):
+                    inner_light=True, blur=7, border_width=1):
     """Собирает гекс как спрайт.
 
     pad — запас вокруг гекса под тень и свечение;
     shadow_alpha — сила мягкой тени (0 отключает её);
-    glow — цвет внешнего свечения (используется для подсветки ячейки).
+    glow — цвет внешнего свечения (используется для подсветки ячейки);
+    border_width — толщина обводки в пикселях.
     """
     size = int(2 * (board.radius * scale + pad))
     cx = cy = size / 2
@@ -75,10 +106,8 @@ def make_hex_sprite(fill, border, scale=1.0, pad=26, shadow_alpha=0, glow=None,
 
     layer.blit(_gradient_body(size, fill, scale), (0, 0))
 
-    # Раньше здесь рисовалась светлая кромка по внутреннему контуру, но при
-    # уменьшении масштаба (взятие фигуры) она превращалась в заметную линию
-    # внутри гекса. Объём создаёт сам градиент, поэтому кромка убрана.
-    gfxdraw.aapolygon(layer, points, (*border, 210))
+    _stroke(layer, points, (*border, 255), max(1, int(round(border_width * scale))),
+            cx, cy, scale)
     return _trim(layer)
 
 
@@ -147,6 +176,7 @@ class SpriteCache:
             pad=self.PADDING,
             shadow_alpha=shadow_alpha,
             glow=glow,
+            border_width=BORDER_WIDTH,
         )
         self._cache[key] = sprite
         return sprite
