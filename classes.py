@@ -4,6 +4,7 @@ from math import pi, sin, cos
 
 from settings import pg, W, H, HEX_MARGIN, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
 from config import board
+from records import records
 from theme import theme
 from fonts import fonts
 from sprites import cache, shade
@@ -1213,6 +1214,179 @@ class Tab(Layer):
         caption = 'Новая игра' if action == 'new_game' else 'Выход'
         text = self._text(caption, self.button_font, text_color)
         self.surface.blit(text, text.get_rect(center=rect.center))
+
+
+class Leaderboard(Layer):
+    """Таблица лучших результатов в левом нижнем углу.
+
+    Показывает тройку лучших для текущего размера поля: у каждого размера
+    она своя. Текущий счёт подмешивается к сохранённым сразу, поэтому рекорд
+    виден в момент, когда он обогнал третье место, а не только в конце партии.
+
+    Панель стоит в углу, который остаётся свободным из-за ромбовидной формы
+    поля: проверено попиксельно на всех трёх размерах.
+    """
+
+    WIDTH = 196
+    HEIGHT = 132
+    MARGIN = 24
+    TITLE_TOP = 18
+    ROW_TOP = 47
+    ROW_STEP = 29
+    TITLE = 'Л У Ч Ш И Е'
+    PLACES = ('medal_gold', 'medal_silver', 'medal_bronze')
+
+    def __init__(self, sc, tab):
+        Layer.__init__(self, sc)
+        self.tab = tab
+        self.current = 0
+        self._rendered = {}
+
+        self.title_font = fonts.regular(12)
+        self.score_font = fonts.semibold(17)
+        self.digit_font = fonts.bold(10)
+
+        self.invalidate(self.bounds)
+
+    @property
+    def rect(self):
+        return pg.Rect(self.MARGIN, H - self.MARGIN - self.HEIGHT,
+                       self.WIDTH, self.HEIGHT)
+
+    @property
+    def bounds(self):
+        # Запас под мягкую тень карточки.
+        return self.rect.inflate(48, 48)
+
+    def attach(self, tab):
+        """Привязывает новую партию: счёт живёт в объекте Tab."""
+        self.tab = tab
+        self.current = 0
+        self.invalidate(self.bounds)
+
+    def update(self):
+        """Следит за счётом: таблица должна показывать его без задержки.
+
+        Записывать результат здесь нельзя. За партию счёт проходит много
+        значений — он прибавляется за каждую поставленную фигуру и за каждую
+        удалённую линию, — и таблица заполнилась бы промежуточными числами
+        одной и той же игры. Результат заносит main.py в конце партии,
+        при выходе и при смене размера.
+
+        Показываем при этом уже заработанное значение: tab.score догоняет
+        tab.target_score по единице за кадр, но игроку важно видеть свой
+        результат сразу, а не середину анимации.
+        """
+        score = max(int(self.tab.score), int(self.tab.target_score))
+        if score == self.current:
+            return
+        self.current = score
+        self.invalidate(self.bounds)
+
+    def submit_current(self):
+        """Заносит текущий результат в таблицу. Вызывается по итогам партии."""
+        self.current = max(int(self.tab.score), int(self.tab.target_score))
+        if self.current > 0:
+            records.submit(board.size, self.current)
+            self.invalidate(self.bounds)
+
+    def redraw(self, rect):
+        self.surface.fill((0, 0, 0, 0), rect)
+        if not rect.colliderect(self.bounds):
+            return
+
+        card = self.rect
+        surface, margin = self._card_surface()
+        self.surface.blit(surface, (card.x - margin, card.y - margin))
+
+        title = self._text(self.TITLE, self.title_font, theme['text_secondary'])
+        self.surface.blit(title, title.get_rect(center=(card.centerx, card.y + self.TITLE_TOP)))
+
+        values, highlight = records.entries(board.size, self.current)
+        for index, value in enumerate(values):
+            center_y = card.y + self.ROW_TOP + index * self.ROW_STEP
+
+            if index == highlight:
+                pill = pg.Rect(card.x + 8, center_y - 13, card.width - 16, 26)
+                fill = pg.Surface(pill.size, pg.SRCALPHA)
+                pg.draw.rect(fill, (*theme['button_primary'], 30), fill.get_rect(), border_radius=9)
+                self.surface.blit(fill, pill.topleft)
+                pg.draw.rect(self.surface, theme['button_primary'], pill, width=1, border_radius=9)
+
+            self._draw_cup(card.x + 30, center_y, self.PLACES[index], index + 1)
+
+            color = theme['button_primary'] if index == highlight else theme['text_primary']
+            text = '—' if value is None else '{:,}'.format(value).replace(',', ' ')
+            score = self._text(text, self.score_font, color)
+            self.surface.blit(score, score.get_rect(midright=(card.right - 14, center_y)))
+
+    def _card_surface(self):
+        """Карточка со скруглением и мягкой тенью, собирается один раз."""
+        key = ('card', theme.name)
+        cached = self._rendered.get(key)
+        if cached is not None:
+            return cached
+
+        rect = self.rect
+        margin = 18
+        surface = pg.Surface((rect.width + margin * 2, rect.height + margin * 2), pg.SRCALPHA)
+
+        shadow = pg.Surface((rect.width, rect.height), pg.SRCALPHA)
+        pg.draw.rect(shadow, theme['card_shadow'], shadow.get_rect(), border_radius=18)
+        shadow = pg.transform.box_blur(shadow, 10)
+        surface.blit(shadow, (margin, margin + 4))
+
+        card = pg.Surface((rect.width, rect.height), pg.SRCALPHA)
+        pg.draw.rect(card, theme['card_fill'], card.get_rect(), border_radius=18)
+        pg.draw.rect(card, theme['card_border'], card.get_rect(), width=1, border_radius=18)
+        surface.blit(card, (margin, margin))
+
+        result = (surface, margin)
+        self._rendered[key] = result
+        return result
+
+    def _draw_cup(self, cx, cy, palette_key, number):
+        """Кубок: чаша с градиентом, ручки, ножка и основание.
+
+        На 20 px медаль с лентой превращается в грязное пятно, а кубок
+        остаётся узнаваемым. Цифра места лежит прямо на чаше.
+        """
+        top, base, dark, ink = theme[palette_key]
+        width, height = 24, 15
+        origin_x, origin_y = cx - width // 2, cy - 12
+
+        # Ручки рисуем первыми: чаша закроет их внутреннюю часть.
+        for side in (-1, 1):
+            pg.draw.circle(self.surface, dark, (cx + side * 12, cy - 8), 4, 2)
+
+        bowl = pg.Surface((width, height), pg.SRCALPHA)
+        for y in range(height):
+            ratio = y / max(1, height - 1)
+            color = tuple(int(a + (b - a) * ratio) for a, b in zip(top, base))
+            pg.draw.line(bowl, color, (0, y), (width, y))
+
+        mask = pg.Surface((width, height), pg.SRCALPHA)
+        shape = [(2, 0), (width - 3, 0), (width - 8, height - 3), (7, height - 3)]
+        pg.draw.polygon(mask, (255, 255, 255, 255), shape)
+        bowl.blit(mask, (0, 0), special_flags=pg.BLEND_RGBA_MIN)
+        self.surface.blit(bowl, (origin_x, origin_y))
+
+        pg.draw.polygon(self.surface, dark, [(x + origin_x, y + origin_y) for x, y in shape], 1)
+        pg.draw.polygon(self.surface, dark,
+                        [(cx - 1, cy + 1), (cx + 2, cy + 1), (cx + 2, cy + 5), (cx - 1, cy + 5)])
+        pg.draw.rect(self.surface, dark, pg.Rect(cx - 6, cy + 5, 12, 3), border_radius=1)
+
+        digit = self._text(str(number), self.digit_font, ink)
+        self.surface.blit(digit, digit.get_rect(center=(cx, cy - 5)))
+
+    def _text(self, text, font, color):
+        """Рендер с кэшем: шрифт перерисовывается только при смене значений."""
+        key = (text, id(font), color)
+        cached = self._rendered.get(key)
+        if cached is None:
+            cached = font.render(text, True, color)
+            self._rendered[key] = cached
+        return cached
 
 
 class ThemeButton(Layer):

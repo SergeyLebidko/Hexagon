@@ -8,7 +8,8 @@ from theme import theme, THEMES
 from config import board, load_preferences, save_preferences
 from sprites import cache
 from classes import (Field, Pool, DragAndDrop, Background, Tab, Renderer,
-                     FxLayer, ThemeButton, SizeButton)
+                     FxLayer, ThemeButton, SizeButton, Leaderboard)
+from records import records
 
 
 def init_new_game(sc):
@@ -49,6 +50,7 @@ def run():
     fx = FxLayer(sc)
     theme_button = ThemeButton(sc)
     size_button = SizeButton(sc)
+    leaderboard = Leaderboard(sc, tab)
 
     def build_layers():
         """Единственное место, где собирается список слоёв.
@@ -57,16 +59,23 @@ def run():
         темы из него терялась: нарисоваться она больше не могла, хотя клики
         по её месту продолжали работать.
         """
-        return [field, pool, drag_and_drop, fx, tab, theme_button, size_button]
+        return [field, pool, drag_and_drop, fx, tab, leaderboard,
+                theme_button, size_button]
 
     # Порядок слоёв задаёт порядок наложения: поле, пул, фигура под курсором,
-    # эффекты, счёт и поверх всего кнопки в углу.
+    # эффекты, счёт и поверх всего кнопки в углу. Таблица лучших лежит над
+    # счётом, поэтому затемнение финального экрана её не скрывает.
     renderer = Renderer(sc, background, build_layers())
 
     def restart_game():
-        """Начинает новую партию, сохраняя выбранные размер и тему."""
+        """Начинает новую партию, сохраняя выбранные размер и тему.
+
+        Результат предыдущей партии уже занесён в таблицу в момент её
+        окончания, поэтому здесь достаточно привязать новую партию.
+        """
         nonlocal field, pool, drag_and_drop, tab
         field, pool, drag_and_drop, tab = init_new_game(sc)
+        leaderboard.attach(tab)
         renderer.layers = build_layers()
         fx.clear()
         renderer.invalidate_all()
@@ -81,6 +90,8 @@ def run():
         background.rebuild()
         field._shadow = None
         tab._rendered = {}
+        leaderboard._rendered = {}
+        leaderboard.invalidate(leaderboard.bounds)
         theme_button.invalidate(theme_button.bounds)
         size_button.invalidate(size_button.bounds)
         renderer.invalidate_all()
@@ -90,6 +101,8 @@ def run():
         """Меняет размер поля. Смена размера требует новой партии."""
         if size == board.size:
             return
+        leaderboard.submit_current()
+        records.save()
         board.set_size(size)
         # Спрайты нарисованы под конкретный радиус гекса - их нужно пересобрать.
         cache.clear()
@@ -98,13 +111,25 @@ def run():
         restart_game()
         store_preferences()
 
+    def quit_game():
+        """Сохраняет таблицу рекордов и закрывает игру.
+
+        Рекорды пишутся на диск только здесь и при смене размера: счёт
+        меняется десятки раз за партию, и сохранять файл каждый раз незачем.
+        Незаконченная партия тоже попадает в таблицу — она про максимум
+        набранных очков, а не про число доигранных игр.
+        """
+        leaderboard.submit_current()
+        records.save()
+        pg.quit()
+
     mode = GAME_MODE
     while True:
 
         events = pg.event.get()
         for event in events:
             if event.type == pg.QUIT:
-                pg.quit()
+                quit_game()
                 return
 
             # Окно могло быть перекрыто или восстановлено - перерисовываем всё.
@@ -156,6 +181,11 @@ def run():
                         figures_in_pool = pool.get_current_figures_list()
                         if not field.check_figures_list(figures_in_pool):
                             tab.set_final_text()
+                            # Партия закончена — фиксируем результат. Раньше
+                            # этого момента записывать нельзя: счёт проходит
+                            # много промежуточных значений.
+                            leaderboard.submit_current()
+                            records.save()
                             mode = FINAL_MODE
 
             elif mode == FINAL_MODE:
@@ -169,7 +199,7 @@ def run():
                         restart_game()
                         mode = GAME_MODE
                     elif action == 'quit':
-                        pg.quit()
+                        quit_game()
                         return
 
         renderer.draw()
