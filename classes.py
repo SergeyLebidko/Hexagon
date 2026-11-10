@@ -1311,7 +1311,6 @@ class Leaderboard(Layer):
                 fill = pg.Surface(pill.size, pg.SRCALPHA)
                 pg.draw.rect(fill, (*theme['button_primary'], 30), fill.get_rect(), border_radius=9)
                 self.surface.blit(fill, pill.topleft)
-                pg.draw.rect(self.surface, theme['button_primary'], pill, width=1, border_radius=9)
 
             self._draw_cup(card.x + 30, center_y, self.PLACES[index], index + 1)
 
