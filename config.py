@@ -9,6 +9,8 @@ import json
 import os
 from math import cos, pi
 
+from settings import VOLUME_ENABLED
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PREFS_PATH = os.path.join(BASE_DIR, 'preferences.json')
 
@@ -58,6 +60,34 @@ class BoardConfig:
 
 
 board = BoardConfig()
+
+
+class VolumeConfig:
+    """Объёмные гексы: включены или выключены.
+
+    Объём рисуется в спрайты при их сборке, поэтому переключение требует
+    пересобрать кэш — это происходит один раз, а не каждый кадр. На слабых
+    машинах старые плоские гексы собираются втрое быстрее и заметно легче
+    для видеокарты: объёмный спрайт больше по площади из-за сглаженных
+    градиентов.
+    """
+
+    def __init__(self, enabled=VOLUME_ENABLED):
+        self.enabled = enabled
+
+    @property
+    def name(self):
+        return 'volume' if self.enabled else 'flat'
+
+    def toggle(self):
+        self.enabled = not self.enabled
+        return self.enabled
+
+    def set(self, enabled):
+        self.enabled = bool(enabled)
+
+
+volume = VolumeConfig()
 
 
 def load_preferences():

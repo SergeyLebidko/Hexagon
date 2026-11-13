@@ -9,9 +9,9 @@ import pygame as pg
 from math import cos, pi, sin, sqrt
 from pygame import gfxdraw
 
-from settings import (BORDER_WIDTH, HEX_MARGIN, VOLUME_DARK, VOLUME_ENABLED,
+from settings import (BORDER_WIDTH, HEX_MARGIN, VOLUME_DARK,
                       VOLUME_LIGHT, BEVEL_WIDTH, BEVEL_STRENGTH)
-from config import board
+from config import board, volume
 from utils import hexagon_points
 
 # Направление на источник света для фаски. Свет падает сверху-слева, как и
@@ -252,11 +252,10 @@ class SpriteCache:
         """
         quantized = self.quantize(scale)
         colored = state in ('figure', 'placed')
-        key = (theme.name, state, color_index if colored else None, quantized)
+        key = (theme.name, volume.name, state, color_index if colored else None, quantized)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-
         if state == 'placed':
             # Ячейка поля: обводка нейтральная, того же цвета, что у пустых
             # ячеек. Она не зависит от заливки, поэтому одинаково выглядит на
@@ -291,7 +290,7 @@ class SpriteCache:
             glow=glow,
             border_width=BORDER_WIDTH,
             # Объём получают только цветные гексы: 'placed' и 'figure'.
-            volume=VOLUME_ENABLED and state in ('placed', 'figure'),
+            volume=volume.enabled and state in ('placed', 'figure'),
         )
         self._cache[key] = sprite
         return sprite

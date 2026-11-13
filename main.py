@@ -5,10 +5,10 @@
 """
 from settings import pg, W, H, WINDOW_TITLE, FPS, GAME_MODE, FINAL_MODE
 from theme import theme, THEMES
-from config import board, load_preferences, save_preferences
+from config import board, volume, load_preferences, save_preferences
 from sprites import cache
 from classes import (Field, Pool, DragAndDrop, Background, Tab, Renderer,
-                     FxLayer, ThemeButton, SizeButton, Leaderboard)
+                     FxLayer, ThemeButton, SizeButton, Leaderboard, VolumeButton)
 from records import records
 
 
@@ -30,10 +30,16 @@ def apply_saved_preferences():
     saved_theme = prefs.get('theme')
     if saved_theme in THEMES:
         theme.current = THEMES[saved_theme]
+    if 'volume' in prefs:
+        volume.set(prefs['volume'])
 
 
 def store_preferences():
-    save_preferences({'board_size': board.size, 'theme': theme.name})
+    save_preferences({
+        'board_size': board.size,
+        'theme': theme.name,
+        'volume': volume.enabled,
+    })
 
 
 def run():
@@ -50,6 +56,7 @@ def run():
     fx = FxLayer(sc)
     theme_button = ThemeButton(sc)
     size_button = SizeButton(sc)
+    volume_button = VolumeButton(sc)
     leaderboard = Leaderboard(sc, tab)
 
     def build_layers():
@@ -60,7 +67,7 @@ def run():
         по её месту продолжали работать.
         """
         return [field, pool, drag_and_drop, fx, tab, leaderboard,
-                theme_button, size_button]
+                theme_button, size_button, volume_button]
 
     # Порядок слоёв задаёт порядок наложения: поле, пул, фигура под курсором,
     # эффекты, счёт и поверх всего кнопки в углу. Таблица лучших лежит над
@@ -111,6 +118,19 @@ def run():
         restart_game()
         store_preferences()
 
+    def switch_volume():
+        """Переключает объёмные гексы на плоские и обратно.
+
+        Партию не перезапускает: настройка касается только картинки, логика
+        и расстановка фигур остаются прежними. Спрайты собираются заново —
+        объём впечён в них при сборке, — поэтому кэш очищается.
+        """
+        volume.toggle()
+        cache.clear()
+        volume_button.invalidate(volume_button.bounds)
+        renderer.invalidate_all()
+        store_preferences()
+
     def quit_game():
         """Сохраняет таблицу рекордов и закрывает игру.
 
@@ -145,6 +165,7 @@ def run():
             if event.type == pg.MOUSEMOTION:
                 theme_button.set_hover(event.pos)
                 size_button.set_hover(event.pos)
+                volume_button.set_hover(event.pos)
 
             if event.type == pg.MOUSEBUTTONDOWN and event.button == pg.BUTTON_LEFT:
                 if theme_button.hit(event.pos):
@@ -153,6 +174,9 @@ def run():
                 size = size_button.hit(event.pos)
                 if size:
                     switch_size(size)
+                    continue
+                if volume_button.hit(event.pos):
+                    switch_volume()
                     continue
 
             if mode == GAME_MODE:

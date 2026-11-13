@@ -3,7 +3,7 @@ from copy import deepcopy
 from math import pi, sin, cos
 
 from settings import pg, W, H, HEX_MARGIN, D_PARAMS, FIGURES_DATA, BACKGROUND_STEP
-from config import board
+from config import board, volume
 from records import records
 from theme import theme
 from fonts import fonts
@@ -1214,6 +1214,98 @@ class Tab(Layer):
         caption = 'Новая игра' if action == 'new_game' else 'Выход'
         text = self._text(caption, self.button_font, text_color)
         self.surface.blit(text, text.get_rect(center=rect.center))
+
+
+class VolumeButton(Layer):
+    """Переключатель оформления гексов: объёмные или плоские.
+
+    Объёмные гексы рисуются с куполом и фаской — это красивее, но сборка
+    спрайта втрое дороже, а сам спрайт тяжелее для блита. На слабой машине
+    полезно вернуть прежний плоский вид, не трогая остальное оформление.
+
+    Кнопка стоит под выбором размера поля, в том же стиле.
+    """
+
+    SIZE = 44
+    MARGIN = 24
+    TOP = 132
+
+    def __init__(self, sc):
+        Layer.__init__(self, sc)
+        self.hovered = False
+        self.invalidate(self.bounds)
+
+    @property
+    def rect(self):
+        return pg.Rect(self.MARGIN, self.TOP, self.SIZE, self.SIZE)
+
+    @property
+    def bounds(self):
+        return self.rect.inflate(16, 16)
+
+    def hit(self, pos):
+        return self.rect.collidepoint(pos)
+
+    def set_hover(self, pos):
+        hovered = self.hit(pos)
+        if hovered != self.hovered:
+            self.hovered = hovered
+            self.invalidate(self.bounds)
+
+    def redraw(self, rect):
+        self.surface.fill((0, 0, 0, 0), rect)
+        if not rect.colliderect(self.bounds):
+            return
+
+        button = self.rect
+        active = volume.enabled
+        if active:
+            fill = theme['button_primary']
+            border = None
+            icon_color = theme['button_primary_text']
+        else:
+            fill = theme['theme_button_hover'] if self.hovered else theme['theme_button_fill']
+            border = theme['theme_button_border']
+            icon_color = theme['theme_button_icon']
+
+        pg.draw.rect(self.surface, fill, button, border_radius=12)
+        if border:
+            pg.draw.rect(self.surface, border, button, width=1, border_radius=12)
+
+        if active:
+            self._draw_cube(button.center, icon_color)
+        else:
+            self._draw_flat(button.center, icon_color)
+
+    def _draw_cube(self, center, color):
+        """Куб в изометрии: значок включённого объёма."""
+        cx, cy = center
+        size = 10
+        top = [(cx, cy - size - 2), (cx + size, cy - size / 2 - 2),
+               (cx, cy + 1), (cx - size, cy - size / 2 - 2)]
+        left = [(cx - size, cy - size / 2 - 2), (cx, cy + 1),
+                (cx, cy + size + 1), (cx - size, cy + size / 2)]
+        right = [(cx + size, cy - size / 2 - 2), (cx, cy + 1),
+                 (cx, cy + size + 1), (cx + size, cy + size / 2)]
+
+        pg.draw.polygon(self.surface, color, top)
+        # Боковые грани полупрозрачные: так куб читается даже одним цветом.
+        for face in (left, right):
+            layer = pg.Surface(self.rect.size, pg.SRCALPHA)
+            local = [(x - self.rect.x, y - self.rect.y) for x, y in face]
+            pg.draw.polygon(layer, (*color, 110), local)
+            pg.draw.polygon(layer, (*color, 200), local, 1)
+            self.surface.blit(layer, self.rect.topleft)
+
+    def _draw_flat(self, center, color):
+        """Плоский шестиугольник: значок выключенного объёма."""
+        cx, cy = center
+        radius = 12
+        points = []
+        for index in range(6):
+            angle = pi / 6 + index * pi / 3
+            points.append((cx + radius * cos(angle), cy - radius * sin(angle)))
+        pg.draw.polygon(self.surface, color, points, 2)
 
 
 class Leaderboard(Layer):
