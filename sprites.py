@@ -6,11 +6,17 @@
 не только не замедляют кадр, но и ускоряют его.
 """
 import pygame as pg
+from math import cos, pi, sin, sqrt
 from pygame import gfxdraw
 
-from settings import BORDER_WIDTH
+from settings import (BORDER_WIDTH, HEX_MARGIN, VOLUME_DARK, VOLUME_ENABLED,
+                      VOLUME_LIGHT, BEVEL_WIDTH, BEVEL_STRENGTH)
 from config import board
 from utils import hexagon_points
+
+# Направление на источник света для фаски. Свет падает сверху-слева, как и
+# тень под гексами, поэтому объём и тень не спорят друг с другом.
+LIGHT_X, LIGHT_Y = -0.42, -0.91
 
 
 def shade(color, factor):
@@ -46,6 +52,84 @@ def _gradient_body(size, fill, scale=1.0):
     return body
 
 
+def _mask(size, cx, cy, scale=1.0):
+    """Маска по контуру гекса: ею обрезаются эффекты объёма."""
+    mask = pg.Surface((size, size), pg.SRCALPHA)
+    gfxdraw.filled_polygon(mask, _int_points(cx, cy, scale), (255, 255, 255, 255))
+    return mask
+
+
+def _corner_points(cx, cy, scale=1.0):
+    """Контур без скруглений: грани фаски должны сходиться в настоящих углах."""
+    radius = (board.radius - HEX_MARGIN) * scale
+    points = []
+    alpha = pi / 6
+    for _ in range(6):
+        points.append((cx + radius * cos(alpha), cy - radius * sin(alpha)))
+        alpha += pi / 3
+    return points
+
+
+def _add_dome(layer, cx, cy, scale, fill, dark, light):
+    """Радиальный градиент: светлое пятно смещено к верхнему левому углу.
+
+    Линейный градиент красит все гексы одинаково, поэтому они выглядят
+    плоскими плитками. Купол даёт центру объём: блик сверху-слева, тень
+    по краям.
+
+    Градиент считается в маленькой текстуре и растягивается: рисовать
+    десятки кругов в полном размере спрайта заметно дороже, а на глаз
+    разницы нет.
+    """
+    size = layer.get_size()[0]
+    small = 64
+    gradient = pg.Surface((small, small), pg.SRCALPHA)
+    origin_x, origin_y = int(small * 0.38), int(small * 0.30)
+    max_radius = int(small * 0.95)
+    for radius in range(max_radius, 0, -1):
+        ratio = radius / max_radius
+        color = shade(fill, dark + (light - dark) * (1 - ratio))
+        pg.draw.circle(gradient, (*color, 255), (origin_x, origin_y), radius)
+
+    texture = pg.transform.smoothscale(gradient, (size, size))
+    texture.blit(_mask(size, cx, cy, scale), (0, 0), special_flags=pg.BLEND_RGBA_MIN)
+    layer.blit(texture, (0, 0))
+
+
+def _add_bevel(layer, cx, cy, scale, fill, width, strength):
+    """Фаска по рёбрам: грани к свету светлее, от света темнее.
+
+    Кольцо между контуром и сжатой копией делится на шесть трапеций по
+    числу рёбер; яркость каждой считается по её нормали. Так у гекса
+    появляются настоящие грани, а не только градиент.
+    """
+    size = layer.get_size()[0]
+    radius = (board.radius - HEX_MARGIN) * scale
+    if radius <= width:
+        return
+
+    factor = 1.0 - width / radius
+    outer = _corner_points(cx, cy, scale)
+    inner = [(cx + (x - cx) * factor, cy + (y - cy) * factor) for x, y in outer]
+
+    ring = pg.Surface((size, size), pg.SRCALPHA)
+    for index in range(6):
+        following = (index + 1) % 6
+        # Нормаль ребра — от центра к его середине.
+        normal_x = (outer[index][0] + outer[following][0]) / 2 - cx
+        normal_y = (outer[index][1] + outer[following][1]) / 2 - cy
+        length = sqrt(normal_x * normal_x + normal_y * normal_y) or 1
+        dot = (normal_x / length) * LIGHT_X + (normal_y / length) * LIGHT_Y
+        color = shade(fill, 1.0 + strength * dot)
+        quad = [outer[index], outer[following], inner[following], inner[index]]
+        points = [(int(round(x)), int(round(y))) for x, y in quad]
+        gfxdraw.filled_polygon(ring, points, (*color, 255))
+        gfxdraw.aapolygon(ring, points, (*color, 255))
+
+    ring.blit(_mask(size, cx, cy, scale), (0, 0), special_flags=pg.BLEND_RGBA_MIN)
+    layer.blit(ring, (0, 0))
+
+
 def _stroke(surface, points, color, width, cx, cy, scale=1.0):
     """Обводка контура заданной толщины, растущая внутрь.
 
@@ -76,13 +160,15 @@ def _stroke(surface, points, color, width, cx, cy, scale=1.0):
 
 
 def make_hex_sprite(fill, border, scale=1.0, pad=26, shadow_alpha=0, glow=None,
-                    inner_light=True, blur=7, border_width=1):
+                    inner_light=True, blur=7, border_width=1, volume=False):
     """Собирает гекс как спрайт.
 
     pad — запас вокруг гекса под тень и свечение;
     shadow_alpha — сила мягкой тени (0 отключает её);
     glow — цвет внешнего свечения (используется для подсветки ячейки);
-    border_width — толщина обводки в пикселях.
+    border_width — толщина обводки в пикселях;
+    volume — добавить объём (купол и фаску). Включается только у цветных
+    гексов: на пустых ячейках он превращал бы поле в стёганое одеяло.
     """
     size = int(2 * (board.radius * scale + pad))
     cx = cy = size / 2
@@ -104,7 +190,14 @@ def make_hex_sprite(fill, border, scale=1.0, pad=26, shadow_alpha=0, glow=None,
         halo.set_alpha(150)
         layer.blit(halo, (0, 0))
 
-    layer.blit(_gradient_body(size, fill, scale), (0, 0))
+    if volume:
+        # Купол заменяет линейный градиент: два градиента друг на друге
+        # дали бы грязный цвет.
+        _add_dome(layer, cx, cy, scale, fill, VOLUME_DARK, VOLUME_LIGHT)
+        _add_bevel(layer, cx, cy, scale, fill,
+                   BEVEL_WIDTH * scale, BEVEL_STRENGTH)
+    else:
+        layer.blit(_gradient_body(size, fill, scale), (0, 0))
 
     _stroke(layer, points, (*border, 255), max(1, int(round(border_width * scale))),
             cx, cy, scale)
@@ -197,6 +290,8 @@ class SpriteCache:
             shadow_alpha=shadow_alpha,
             glow=glow,
             border_width=BORDER_WIDTH,
+            # Объём получают только цветные гексы: 'placed' и 'figure'.
+            volume=VOLUME_ENABLED and state in ('placed', 'figure'),
         )
         self._cache[key] = sprite
         return sprite
